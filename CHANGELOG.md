@@ -11,7 +11,9 @@ and the commits for the exact changes.
 - `scripts/launch_env.py` — one source for the graphics options, patch selection and
   `GOW3_DMEM_MB`/`GOW3_VBLANK_HZ`, shared by `run.py` (Windows) and `run.sh` (Linux).
 - `packaging/deck.sh` — a self-contained Linux/Steam Deck package (bundled libraries, `RPATH`,
-  no system install) plus `packaging/deck-gow3.ini` (720p + engine 60 + FSR 1 defaults).
+  no system install) plus `packaging/deck-gow3.ini` (800p 16:10 + engine 60 + FSR 1 defaults).
+- `Resolution Patch - 800p` — 1280×800 (16:10) for the Steam Deck panel (the stock resolutions
+  are 16:9 and letterbox it).
 - `docs/LINUX.md`; CI (build + tests + the Steam Deck package).
 
 ### Fixed

@@ -32,8 +32,9 @@ judging the frame rate.
 ### Steam Deck performance
 
 The Deck panel is 1280×800, so the defaults are tuned for it (see `gow3.ini.example`):
-`render_resolution=720p`, `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling. If you want more
-headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise `engine_fps` to 120.
+`render_resolution=800p` (the panel's 16:10), `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling.
+If you want more headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise
+`engine_fps` to 120.
 The in-game menu (**Insert**, or **R3+L2**) changes these (render resolution and engine FPS apply
 with "Apply and restart").
 
@@ -148,5 +149,6 @@ this Windows-focused fork. What was needed to make it build **and behave** corre
    load (`undefined symbol: xcb_dri3_get_supported_modifiers_window_modifiers` →
    `VK_ERROR_INCOMPATIBLE_DRIVER`), so the ICD and the port share the host's copy.
 
-5. **Deck defaults.** `packaging/deck-gow3.ini`: 720p render + engine 60 + FSR 1 (the stock
-   defaults — 1080p render and the 120 FPS engine patch — are too heavy for Van Gogh).
+5. **Deck defaults.** `packaging/deck-gow3.ini`: **800p (1280×800, 16:10)** render + engine 60 +
+   FSR 1 (the stock defaults — 1080p render and the 120 FPS engine patch — are too heavy for Van
+   Gogh, and 16:9 render resolutions letterbox the 16:10 panel).

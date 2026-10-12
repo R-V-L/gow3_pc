@@ -1,6 +1,6 @@
 # gow3_pc — Roadmap até a versão Alpha
 
-Port nativo de **God of War III Remastered** (PS4) para Windows, construído a partir do
+Port de **God of War III Remastered** (PS4) para Windows, construído a partir do
 [bbport / bloodborne_pc](https://github.com/Supermedo/bloodborne_pc).
 
 | | |

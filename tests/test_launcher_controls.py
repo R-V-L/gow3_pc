@@ -13,6 +13,13 @@ class ControlMapTest(unittest.TestCase):
         self.assertIn('cheat_double_jumps', launcher.INI_FLAGS)
         self.assertIn('cheat_very_hard', launcher.INI_FLAGS)
 
+    def test_pipeline_binary_cache_switch(self):
+        settings = {**launcher.APP_DEFAULTS}
+        self.assertTrue(settings['pipeline_binary_cache'])
+        self.assertEqual(launcher.game_environment(settings)['GOW3_PIPELINE_BINARIES'], '1')
+        settings['pipeline_binary_cache'] = False
+        self.assertEqual(launcher.game_environment(settings)['GOW3_PIPELINE_BINARIES'], '0')
+
     def test_changed_buttons_in_table_order(self):
         controls = {'key': {'circle': ' Left Shift ', 'cross': 'Q', 'square': ''}, 'pad': {'cross': 'b'}}
         self.assertEqual(launcher.control_map(controls, 'key'), 'cross=Q,circle=Left Shift')
@@ -31,6 +38,21 @@ class ControlMapTest(unittest.TestCase):
         pads = {b: p or '' for b, _k, p in launcher.CONTROLS}
         pads.update(cross='b', l2='a')
         self.assertEqual(launcher.control_changes(pads, 'pad'), {'cross': 'b'})  # L2/R2: triggers only
+
+    def test_touchpad_sides_are_separate_buttons(self):
+        rows = {b: (k, p) for b, k, p in launcher.CONTROLS}
+        self.assertNotIn('touchpad', rows)
+        self.assertEqual(rows['touchpad_left'], ('Tab', None))  # photo mode: L1 + the right-click button
+        self.assertEqual(rows['touchpad_right'], ('Backspace', 'back'))  # pause menu
+        self.assertEqual(launcher.control_map({'pad': {'touchpad_right': 'guide'}}, 'pad'), 'touchpad_right=guide')
+        self.assertEqual(launcher.control_map({'key': {'touchpad_right': 'Delete'}}, 'key'), 'touchpad_right=Delete')
+
+    def test_saved_touchpad_key_moves_to_the_left_side(self):
+        # Settings saved before the sides were split named the left click 'touchpad'.
+        self.assertEqual(launcher.control_map({'key': {'touchpad': 'T'}}, 'key'), 'touchpad_left=T')
+        self.assertEqual(launcher.control_map({'key': {'touchpad': 'T', 'touchpad_left': 'Y'}}, 'key'), 'touchpad_left=Y')
+        self.assertEqual(launcher.control_values({'key': {'touchpad': 'T'}}, 'key'), {'touchpad_left': 'T'})
+        self.assertEqual(launcher.control_values({'pad': {'touchpad': 'misc1'}}, 'pad'), {})  # no gamepad box for it
 
     def test_both_styles_name_every_default_gamepad_button(self):
         for labels in launcher.PAD_STYLES.values():
@@ -75,9 +97,60 @@ class ControlMapTest(unittest.TestCase):
         self.assertNotIn('GOW3_FRAMES_AHEAD', launcher.game_environment({**launcher.APP_DEFAULTS, 'frames_ahead': '2'}))
 
 
+class GameFilesTest(unittest.TestCase):
+    def test_missing_game_files(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            (folder / 'sce_module').mkdir()
+            (folder / 'sce_module/libSceFios2.prx').write_bytes(b'x')
+            self.assertEqual(launcher.missing_game_files(folder),
+                             ['sce_sys/param.sfo', 'sce_module/libc.prx'])
+            (folder / 'sce_sys').mkdir()
+            (folder / 'sce_sys/param.sfo').write_bytes(b'x')
+            (folder / 'sce_module/libc.prx').write_bytes(b'x')
+            self.assertEqual(launcher.missing_game_files(folder), [])
+
+
+class GpuChoiceTest(unittest.TestCase):
+    def test_parse_gpu_list(self):
+        text = '0\tAMD Radeon(TM) Graphics\tintegrated\nbroken line\n1\tNVIDIA GeForce RTX 2070 SUPER\tdiscrete\n'
+        self.assertEqual(launcher.parse_gpu_list(text),
+                         [('0', 'AMD Radeon(TM) Graphics', 'integrated'),
+                          ('1', 'NVIDIA GeForce RTX 2070 SUPER', 'discrete')])
+        self.assertEqual(launcher.parse_gpu_list(''), [])
+
+    def test_list_gpus_failures_leave_only_automatic(self):
+        import subprocess
+        from unittest import mock
+        with mock.patch.object(launcher, 'find_tool', return_value=None):
+            self.assertEqual(launcher.list_gpus(), [])
+        with mock.patch.object(launcher, 'find_tool', return_value='gow3-gpu-capabilities.exe'):
+            with mock.patch.object(launcher.subprocess, 'run', side_effect=subprocess.TimeoutExpired('x', 5)):
+                self.assertEqual(launcher.list_gpus(), [])
+            with mock.patch.object(launcher.subprocess, 'run', side_effect=OSError):
+                self.assertEqual(launcher.list_gpus(), [])
+            done = mock.Mock(returncode=0, stdout='0\tRX 6700 XT\tdiscrete\n')
+            with mock.patch.object(launcher.subprocess, 'run', return_value=done) as run:
+                self.assertEqual(launcher.list_gpus(), [('0', 'RX 6700 XT', 'discrete')])
+                self.assertEqual(run.call_args.kwargs['timeout'], 5)
+
+    def test_gpu_choice_reaches_the_game(self):
+        from unittest import mock
+        with mock.patch.dict(launcher.os.environ, {'GOW3_GPU_ID': '7'}):
+            env = launcher.game_environment({**launcher.APP_DEFAULTS, 'game_dir': 'x'})
+            self.assertIsNone(env.get('GOW3_GPU_ID'))  # Automatic wins over an inherited value
+            env = launcher.game_environment({**launcher.APP_DEFAULTS, 'game_dir': 'x', 'gpu_id': '1'})
+            self.assertEqual(env['GOW3_GPU_ID'], '1')
+            env = launcher.game_environment({**launcher.APP_DEFAULTS, 'game_dir': 'x', 'gpu_id': 'bad'})
+            self.assertIsNone(env.get('GOW3_GPU_ID'))
+        self.assertEqual(launcher.APP_DEFAULTS['gpu_id'], '')
+
+
 class ReleaseVersionTest(unittest.TestCase):
     def test_god_of_war_release_is_newer_than_the_inherited_tags(self):
-        self.assertEqual(launcher.VERSION, '2.1.2')
+        self.assertEqual(launcher.VERSION, '2.1.6')
         self.assertGreater(launcher.version_tuple(launcher.VERSION), launcher.version_tuple('windows-v1.5'))
         self.assertGreater(launcher.version_tuple('windows-v2.2'), launcher.version_tuple(launcher.VERSION))
 

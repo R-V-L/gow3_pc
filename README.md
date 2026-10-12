@@ -5,12 +5,17 @@
 A native port of **God of War III Remastered** (PlayStation 4) to Windows 10/11 and Linux
 (including the Steam Deck).
 
-The game's original executable runs directly on the PC's processor (the PS4 uses the same x86-64
-architecture). A runtime written for this game replaces the PS4 system libraries, and the
-graphics are translated to Vulkan. It is not a general emulator: the project serves one game.
+The CPU side is native: the game's original executable runs directly on the PC's processor (the
+PS4 uses the same x86-64 architecture), and a runtime written for this game replaces the PS4
+system libraries, so there is no emulator. The graphics are translated: they run on the
+[shadPS4](https://github.com/shadps4-emu/shadPS4) video core, which converts the PS4 GPU commands
+and shaders to Vulkan, with the God of War III rendering fixes from
+[cuesta4's `eltutz` branch](https://github.com/cuesta4/shadPS4/tree/eltutz). Running the game code
+directly on the CPU is also how shadPS4 works; what this project changes is the system layer and
+the game-specific work (patches, background shader cache, launcher and in-game menu).
 It is a fork of [Supermedo's Windows port](https://github.com/Supermedo/bloodborne_pc) of
-[deadinside28's bloodborne_pc](https://github.com/deadinside28/bloodborne_pc), with God of War III
-fixes from [cuesta4's shadPS4 fork](https://github.com/cuesta4/shadPS4) (see [Credits](#credits)).
+[deadinside28's bloodborne_pc](https://github.com/deadinside28/bloodborne_pc) (see
+[Credits](#credits)).
 
 > **No game files are included.** You need a dump from your own PS4 (CUSA01623, version 01.02).
 > This project is not affiliated with Sony Interactive Entertainment or Santa Monica Studio.
@@ -172,6 +177,13 @@ Settings are kept in `gow3.ini` (the game and the in-game menu) and in
 `%APPDATA%\gow3-launcher\settings.json` (the launcher). Saves, the shader cache and
 `last_run.log` go to the project's `user` folder.
 
+On **Performance → GPU data → Stream buffer memory**, choose **System RAM (cached, default)**,
+**System RAM (uncached)** or **GPU memory (previous behavior)**. System RAM can improve frame
+rates on NVIDIA laptops. The choice is saved and applies on the next game launch, including
+when using `Play God of War III.exe` or `--play`. Choose GPU memory to restore the previous
+allocation behavior. For direct launches without the launcher, `GOW3_STREAM_MEMORY` accepts
+`cached`, `host` or `device`; the launcher's saved choice takes precedence when using it.
+
 ### Keyboard controls
 
 Defaults; change them on the launcher's **Controls** page.
@@ -189,8 +201,13 @@ Defaults; change them on the launcher's **Controls** page.
 | Z and C | L3 and R3 |
 | I, K, J, L | d-pad |
 | Enter | Options |
-| Tab | touchpad |
+| Tab | left touchpad click (photo mode) |
+| Backspace | right touchpad click (pause menu) |
 | Insert | the port's menu (R3+L2 on the controller) |
+
+On a controller without a touchpad (Xbox and others), View opens the pause menu (the right
+touchpad click) and L1 + View opens photo mode (the left click). On a DualSense the touchpad
+works as on the PS4, and Share/Create works like View.
 
 In the menu: L1/R1 or Q/E switch tabs. In the save list: arrows or the d-pad choose, Enter or
 Cross confirm, Esc or Circle cancel.
@@ -223,7 +240,7 @@ out/gow3-probe.exe out/boot-linked.bin --app0 <game folder> --check-imports
 | Preparation | `scripts/` | Reads `eboot.bin`, applies its relocations and links the game's own `libc` and `libSceFios2` into one image |
 | Loader | `src/probe.c` | Loads the image, installs the validated hooks (cheats, multipliers, health bar) and starts the game's original code |
 | Runtime | `src/runtime_*.c` | Reimplements the PS4 system functions: memory, threads, files, audio, video, controller, saves and services |
-| GPU | `gpu/shadps4/` | The shadPS4 video core, translating the PS4 GPU commands to Vulkan, with this port's speed work (background shader cache, deferred readbacks) |
+| GPU | `gpu/shadps4/` | The shadPS4 video core, translating the PS4 GPU commands and shaders to Vulkan, with cuesta4's God of War III fixes (`eltutz` branch) and this port's speed work (background shader cache, deferred readbacks) |
 | In-game menu | `gpu/shim/gow3_overlay.cpp` | The Dear ImGui menu and performance overlay; settings in `gpu/shim/gow3_settings.cpp` |
 | Patches | `patches/God_of_War_III_Remastered.xml`, `scripts/patches.py` | Applied in memory at start, without changing the game files |
 | Launcher | `launcher/gow3_launcher_win.py` | Settings, patches, mods, controls and the play button |
@@ -239,10 +256,13 @@ This project is a fork of Supermedo's Windows port, which builds on deadinside28
   native port.
 - **Supermedo** (Mohammed Albarghouthi): [bloodborne_pc for Windows](https://github.com/Supermedo/bloodborne_pc),
   the fork this project comes from.
-- **cuesta4**: [shadPS4 fork focused on God of War III Remastered](https://github.com/cuesta4/shadPS4)
-  (branch `eltutz`). This port uses its GNM blend rewrite, depth/stencil state and image aliasing
-  fixes.
-- **shadPS4 team**: the [shadPS4](https://github.com/shadps4-emu/shadPS4) renderer.
+- **cuesta4**: [shadPS4 fork focused on God of War III Remastered](https://github.com/cuesta4/shadPS4/tree/eltutz)
+  (branch `eltutz`). The game's rendering in this port depends on its fixes: the GNM blend
+  rewrite, depth/stencil state and image aliasing. cuesta4 is also a co-author of the
+  resolution, texture fix, 120 FPS and skip videos patches (below). If you play on shadPS4,
+  this is the build to use for God of War III.
+- **shadPS4 team**: the [shadPS4](https://github.com/shadps4-emu/shadPS4) video core, which does
+  all the GPU and shader translation to Vulkan in this port.
 
 Patches: kvicken and cuesta4 (resolution, texture fix, 120 FPS and skip videos, building on the
 PS3 patches by illusion0001), published for shadPS4 in

@@ -40,12 +40,15 @@ APP_NAME = 'God of War III'
 MAX_LOG_LINES = 6000
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 # This build; GitHub release tags are windows-v<VERSION>.
-VERSION = '2.1.2'
+VERSION = '2.1.6'
 RELEASES_API = 'https://api.github.com/repos/FelipePrado0/gow3_pc/releases/latest'
 RELEASES_PAGE = 'https://github.com/FelipePrado0/gow3_pc/releases/latest'
 UPDATE_DIR = Path(tempfile.gettempdir()) / 'gow3-update'
 # Never copied over an installation by an update (the package does not hold them either).
 USER_FILES = ('user', 'out', 'mods', 'gow3.ini', 'mods.json', 'mods_presets.json', 'patches.json', 'last_run.log')
+# The God of War face for titles, next to gow3.ico; main() registers it for this process only.
+FONT_FILE = PORT_DIR / 'launcher' / 'gowfont.ttf'
+FR_PRIVATE = 0x10
 
 
 # ---------------------------------------------------------------------------------------------
@@ -93,6 +96,30 @@ def run_command():
     return [sys.executable, '--run'] if FROZEN else [sys.executable, str(PORT_DIR / 'run.py')]
 
 
+def find_tool(name):
+    """A port executable: bin/ in a packaged build, out/ in a source checkout (as run.py looks)."""
+    return next((str(p) for p in (PORT_DIR / 'bin' / name, PORT_DIR / 'out' / name) if p.is_file()), None)
+
+
+def parse_gpu_list(text):
+    """(index, name, type) per line of `gow3-gpu-capabilities --list`; other lines are skipped."""
+    rows = [line.split('\t') for line in text.splitlines()]
+    return [tuple(row) for row in rows if len(row) == 3 and row[0].isdigit()]
+
+
+def list_gpus():
+    """The Vulkan GPUs in the order the game numbers them, or [] when the tool cannot tell."""
+    tool = find_tool('gow3-gpu-capabilities.exe')
+    if not tool:
+        return []
+    try:
+        done = subprocess.run([tool, '--list'], capture_output=True, text=True, timeout=5,
+                              creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_gpu_list(done.stdout) if done.returncode == 0 else []
+
+
 # ---------------------------------------------------------------------------------------------
 # Languages: every text is written in English with the Russian next to it; the other
 # languages are in gow3_lang.py, keyed by the English text.
@@ -102,6 +129,7 @@ import button_icons  # noqa: E402
 import gow3_lang  # noqa: E402
 
 LANG = 'en'
+FONT_LOADED = False  # set by main() for the window; the command-line roles never need the font
 
 
 WARN = '  ⚠'  # marks a risky choice; the text before it is translated as usual
@@ -123,6 +151,23 @@ def windows_language():
     return gow3_lang.WINDOWS_LANGUAGES.get(primary, 'en')
 
 
+def register_font(path):
+    """Makes a font file available to this process (nothing else sees it). False when the file is missing or
+    GDI refuses it: the launcher then keeps its standard fonts."""
+    try:
+        return path.is_file() and bool(ctypes.windll.gdi32.AddFontResourceExW(str(path), FR_PRIVATE, 0))
+    except (AttributeError, OSError):
+        return False
+
+
+def heading_font(size, fallback='Georgia', every_language=False):
+    """Titles use the God of War face once its file is registered: in the English UI, or in every language
+    for the game's name. Otherwise the launcher's usual family."""
+    if FONT_LOADED and (every_language or LANG == 'en'):
+        return ('GodOfWar', size)
+    return (fallback, size)
+
+
 # ---------------------------------------------------------------------------------------------
 # Settings. gow3.ini keys (the game reads them, the in-game menu edits them) and the
 # launcher's own settings.json (passed to run.py as environment variables).
@@ -140,22 +185,25 @@ DISPLAY_MODES = [('windowed', ('Windowed',)), ('borderless', ('Borderless',)), (
 FPS_LIMITS = [('30', ('30',)), ('60', ('60',)), ('120', ('120',)), ('240', ('240',)), ('0', ('Unlimited',))]
 APP_DEFAULTS = {'ui_language': 'en', 'game_dir': os.environ.get('GOW3_GAME_DIR', str(PORT_DIR.parent / 'CUSA01623')), 'user_dir': '',
                 'mods_dir': '', 'mods_enabled': True, 'patches_dir': '', 'language': '1',
-                'player_name': '', 'hdr': False, 'draw_pipe': '', 'readbacks': '',
-                'background_warmup': True, 'parallel_warmup': True, 'perf_diag': False, 'frame_capture_key': False, 'frame_stats': False, 'gpu_profile': False,
+                'player_name': '', 'hdr': False, 'draw_pipe': '', 'readbacks': '', 'stream_memory': 'cached',
+                'gpu_id': '', 'background_warmup': True, 'parallel_warmup': True, 'pipeline_binary_cache': True,
+                'perf_diag': False, 'frame_capture_key': False, 'frame_stats': False, 'gpu_profile': False,
                 'vk_validation': False, 'close_on_play': False,
                 'check_updates': False, 'game_patches': {}, 'controls': {}, 'pad_style': 'playstation'}
 
 # PS4 button, default key, default gamepad button (SDL names; src/runtime_pad.c). L2/R2 come
-# from the analog triggers and are not remapped on the gamepad.
+# from the analog triggers and the left touchpad click (photo mode) from L1 + the right click's
+# button; neither is remapped on the gamepad.
 CONTROLS = [('cross', 'Space', 'a'), ('circle', 'Left Shift', 'b'), ('square', 'E', 'x'),
             ('triangle', 'Q', 'y'), ('l1', '1', 'leftshoulder'), ('r1', '3', 'rightshoulder'),
             ('l2', 'R', None), ('r2', 'F', None), ('l3', 'Z', 'leftstick'),
-            ('r3', 'C', 'rightstick'), ('options', 'Return', 'start'), ('touchpad', 'Tab', 'back'),
+            ('r3', 'C', 'rightstick'), ('options', 'Return', 'start'),
+            ('touchpad_left', 'Tab', None), ('touchpad_right', 'Backspace', 'back'),
             ('up', 'I', 'dpup'), ('down', 'K', 'dpdown'), ('left', 'J', 'dpleft'), ('right', 'L', 'dpright')]
 PS_BUTTON_NAMES = {'cross': 'Cross', 'circle': 'Circle', 'square': 'Square', 'triangle': 'Triangle',
                    'l1': 'L1', 'r1': 'R1', 'l2': 'L2', 'r2': 'R2', 'l3': 'L3', 'r3': 'R3',
-                   'options': 'Options', 'touchpad': 'Touchpad', 'up': 'D-pad up', 'down': 'D-pad down',
-                   'left': 'D-pad left', 'right': 'D-pad right'}
+                   'options': 'Options', 'touchpad_left': 'Touchpad left', 'touchpad_right': 'Touchpad right',
+                   'up': 'D-pad up', 'down': 'D-pad down', 'left': 'D-pad left', 'right': 'D-pad right'}
 # Gamepad buttons by SDL name, labelled as on a PlayStation or an Xbox controller.
 PAD_STYLES = {
     'playstation': {'a': 'Cross', 'b': 'Circle', 'x': 'Square', 'y': 'Triangle', 'leftshoulder': 'L1',
@@ -178,12 +226,24 @@ def control_changes(values, kind):
             and values[row[0]].strip().casefold() != row[column].casefold()}
 
 
+def control_values(controls, kind):
+    """The saved keys ('key') or gamepad names ('pad') by game button, for the buttons that have
+    a box of that kind. 'touchpad', saved before the sides were split, is the left click."""
+    chosen = controls.get(kind, {}) if isinstance(controls, dict) else {}
+    if not isinstance(chosen, dict):
+        return {}
+    values = {button: value for button, value in chosen.items() if button != 'touchpad'}
+    if 'touchpad' in chosen and 'touchpad_left' not in values:
+        values['touchpad_left'] = chosen['touchpad']
+    return {button: values[button] for button, key, pad in CONTROLS
+            if (key if kind == 'key' else pad) and isinstance(values.get(button), str) and values[button].strip()}
+
+
 def control_map(controls, kind):
     """GOW3_KEY_MAP/GOW3_PAD_MAP value: 'cross=Q,circle=Left Shift' for the changed buttons."""
-    chosen = controls.get(kind, {}) if isinstance(controls, dict) else {}
+    chosen = control_values(controls, kind)
     return ','.join(f'{button}={chosen[button].strip()}' for button, _key, _pad in CONTROLS
-                    if isinstance(chosen.get(button), str) and chosen[button].strip()
-                    and not set(chosen[button]) & set(',='))
+                    if button in chosen and not set(chosen[button]) & set(',='))
 
 UPSCALERS = [('dlss', ('DLSS (NVIDIA GeForce RTX)',)),
              ('fsr4', ('FSR 4 (best quality)', 'FSR 4 (лучшее качество)')),
@@ -204,6 +264,9 @@ DRAW_PIPE = [('', ('Auto (8+ threads)', 'Авто (8+ потоков)')), ('1', 
              ('0', ('Off (more stable)', 'Выключен (стабильнее)'))]
 READBACKS = [('', ('Relaxed (default)', 'Relaxed (по умолчанию)')), ('0', ('Off', 'Выключены')),
              ('2', ('Precise',))]
+STREAM_MEMORY = [('cached', ('System RAM (cached, default)',)),
+                 ('host', ('System RAM (uncached)',)),
+                 ('device', ('GPU memory (previous behavior)',))]
 FRAMES_QUEUED = [('1', ('1 (lowest latency)',)), ('2', ('2',)), ('0', ('Unlimited',))]
 UI_LANGUAGES = gow3_lang.LANGUAGE_NAMES
 
@@ -282,6 +345,14 @@ def game_info(folder):
         return APP_NAME, '?'
 
 
+REQUIRED_GAME_FILES = ('sce_sys/param.sfo', 'sce_module/libc.prx', 'sce_module/libSceFios2.prx')
+
+
+def missing_game_files(folder):
+    """Files the port loads from the dump that the folder lacks (an incomplete dump)."""
+    return [name for name in REQUIRED_GAME_FILES if not (Path(folder) / name).is_file()]
+
+
 def game_profile_of(folder):
     """(title id, (ids, built-in XML, app version)) of a game with a patch profile, else (id, None)."""
     from patches import game_profile, game_title_id
@@ -313,8 +384,16 @@ def game_environment(s):
     for key, name in (('draw_pipe', 'GOW3_DRAW_PIPE'), ('readbacks', 'GOW3_READBACKS')):
         if s[key]:
             env[name] = s[key]
+    # The saved UI choice wins over inherited diagnostic overrides, including when reverting.
+    stream_memory = s.get('stream_memory', APP_DEFAULTS['stream_memory'])
+    env['GOW3_STREAM_MEMORY'] = stream_memory if stream_memory in ('cached', 'host', 'device') else 'cached'
+    gpu_id = str(s.get('gpu_id', ''))
+    env.pop('GOW3_GPU_ID', None)
+    if gpu_id.isdigit():
+        env['GOW3_GPU_ID'] = gpu_id
     env['GOW3_BACKGROUND_WARMUP'] = '1' if s.get('background_warmup', True) else '0'
     env['GOW3_PARALLEL_WARMUP'] = '1' if s.get('parallel_warmup', True) else '0'
+    env['GOW3_PIPELINE_BINARIES'] = '1' if s.get('pipeline_binary_cache', True) else '0'
     env['GOW3_PERF_DIAG'] = '1' if s.get('perf_diag', False) else '0'
     for key, name in (('frame_stats', 'GOW3_FRAME_STATS'), ('gpu_profile', 'GOW3_GPU_PROFILE'),
                       ('vk_validation', 'GOW3_VK_VALIDATION'), ('frame_capture_key', 'GOW3_FRAME_CAPTURE_KEY')):
@@ -444,7 +523,7 @@ class Launcher:
         s.configure('TLabel', background=PANEL, foreground=TEXT)
         s.configure('Muted.TLabel', background=PANEL, foreground=MUTED, font=('Segoe UI', 9))
         s.configure('Restart.TLabel', background=PANEL, foreground=ACCENT_HI, font=('Segoe UI', 8, 'bold'))
-        s.configure('Section.TLabel', background=PANEL, foreground=ACCENT_HI, font=('Georgia', 12))
+        s.configure('Section.TLabel', background=PANEL, foreground=ACCENT_HI, font=heading_font(12))
         s.configure('TCheckbutton', background=PANEL, foreground=TEXT, padding=(0, 3))
         s.map('TCheckbutton', background=[('active', PANEL)], foreground=[('disabled', MUTED)])
         s.configure('TRadiobutton', background=PANEL, foreground=TEXT, indicatorcolor=CARD)
@@ -457,7 +536,7 @@ class Launcher:
         s.configure('TSpinbox', foreground=TEXT, arrowcolor=MUTED, insertcolor=TEXT, padding=4)
         s.configure('TButton', background=CARD, foreground=TEXT, padding=(12, 6), borderwidth=1)
         s.map('TButton', background=[('active', LINE), ('disabled', PANEL)], foreground=[('disabled', MUTED)])
-        s.configure('Play.TButton', background=ACCENT, foreground='#f4ece0', font=('Georgia', 15, 'bold'),
+        s.configure('Play.TButton', background=ACCENT, foreground='#f4ece0', font=(*heading_font(15), 'bold'),
                     padding=(36, 10), borderwidth=0)
         s.map('Play.TButton', background=[('active', ACCENT_HI), ('disabled', '#2e1c1c')],
               foreground=[('disabled', '#8a7a78')])
@@ -561,7 +640,7 @@ class Launcher:
         outer = ttk.Frame(self.content)
         head = ttk.Frame(outer, padding=(28, 22, 28, 6))
         head.pack(fill='x')
-        ttk.Label(head, text=title.upper(), background=PANEL, foreground=TEXT, font=('Georgia', 20)).pack(anchor='w')
+        ttk.Label(head, text=title.upper(), background=PANEL, foreground=TEXT, font=heading_font(20)).pack(anchor='w')
         ttk.Label(head, text=subtitle, style='Muted.TLabel').pack(anchor='w')
         canvas = tk.Canvas(outer, bg=PANEL, highlightthickness=0, bd=0)
         bar = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview)
@@ -583,7 +662,7 @@ class Launcher:
         side = tk.Frame(self.root, bg=BG, width=self.px(220))
         side.pack(side='left', fill='y')
         side.pack_propagate(False)
-        self.side_title = tk.Label(side, text=APP_NAME.upper(), bg=BG, fg=TEXT, font=('Georgia', 15),
+        self.side_title = tk.Label(side, text=APP_NAME.upper(), bg=BG, fg=TEXT, font=heading_font(15, every_language=True),
                                    wraplength=self.px(190), justify='left')
         self.side_title.pack(anchor='w', padx=22, pady=(24, 22))
         self.side = side
@@ -592,7 +671,7 @@ class Launcher:
                             ('game', _('Game', 'Игра')), ('patches', _('Patches', 'Патчи')),
                             ('mods', _('Mods', 'Моды')), ('controls', _('Controls', 'Управление')),
                             ('advanced', _('Advanced', 'Дополнительно')), ('log', _('Log', 'Журнал'))):
-            item = tk.Label(side, text='    ' + title, bg=BG, fg=TEXT, anchor='w', font=('Segoe UI', 11),
+            item = tk.Label(side, text='    ' + title, bg=BG, fg=TEXT, anchor='w', font=heading_font(11, 'Segoe UI'),
                             pady=10, cursor='hand2')
             item.pack(fill='x')
             item.bind('<Button-1>', lambda _e, n=name: self.show(n))
@@ -699,7 +778,7 @@ class Launcher:
                 c.create_rectangle(0, h - 120 + i * 24, w, h - 96 + i * 24, fill=PANEL, outline='', stipple=stipple)
             c.create_rectangle(0, h - 24, w, h, fill=PANEL, outline='')
         else:
-            c.create_text(30, h - 74, text=APP_NAME.upper(), anchor='w', fill=TEXT, font=('Georgia', 32))
+            c.create_text(30, h - 74, text=APP_NAME.upper(), anchor='w', fill=TEXT, font=heading_font(32, every_language=True))
         if info:
             title_id = game_profile_of(folder)[0]
             sub = _('{} · version {}', '{} · версия {}').format(title_id or '?', info[1])
@@ -814,6 +893,9 @@ class Launcher:
                  _('The size the game draws at; higher is sharper and slower. A resolution patch replaces the '
                    'texture fix and reserves the memory it needs.'), restart=True)
         self.section(f, _('Shaders'))
+        self.check(f, 'pipeline_binary_cache', 'app', _('Use pipeline binary cache (A/B test)'),
+                   _('Reuse saved Vulkan pipelines. Disable to compare FPS with normal compilation. '
+                     'Takes effect on the next launch; saved caches are preserved.'))
         self.check(f, 'background_warmup', 'app', _('Load shader cache in the background'),
                    _('The game opens at once and the saved shaders load while you play; a small note in the '
                      'corner shows the progress. Switch it off to wait on the loading screen instead.'))
@@ -823,6 +905,13 @@ class Launcher:
         self.check(f, 'parallel_warmup', 'app', _('Fast shader cache loading (parallel)'),
                    _('Loading screen only: builds the cached pipelines on several CPU threads.'))
         self.section(f, _('GPU data'))
+        gpus = [('', ('Automatic',))] + [(index, (name,)) for index, name, _kind in list_gpus()]
+        self.row(f, _('Graphics card'), self.choice(f, 'gpu_id', 'app', gpus),
+                 _('The GPU the game runs on. Choose your dedicated card if the game uses the integrated one.'),
+                 restart=True)
+        self.row(f, _('Stream buffer memory'), self.choice(f, 'stream_memory', 'app', STREAM_MEMORY),
+                 _('System RAM can improve FPS on NVIDIA laptops. Choose GPU memory to restore the previous '
+                   'behavior. Applies on the next game launch.'), restart=True)
         self.check(f, 'stale_readback', 'ini', _('Game reads GPU data without waiting (big FPS gain)'),
                    _('About 40 to 66 FPS in a heavy scene. Needs deferred GPU readbacks. Switch it off if lighting '
                      'or objects look wrong.'), restart=True)
@@ -975,7 +1064,7 @@ class Launcher:
         tk, ttk = self.tk, self.ttk
         f = self.scrolled_page('controls', _('Controls', 'Управление'),
                                _('Which key or gamepad button presses each button of the game.'))
-        saved = self.app.get('controls') if isinstance(self.app.get('controls'), dict) else {}
+        saved = {kind: control_values(self.app.get('controls'), kind) for kind in ('key', 'pad')}
         style = self.app.get('pad_style') if self.app.get('pad_style') in PAD_STYLES else 'playstation'
         self.pad_style = tk.StringVar(value=style)
         names = ttk.Frame(f)
@@ -1017,13 +1106,16 @@ class Launcher:
                 box.bind('<<ComboboxSelected>>', chosen)
                 self.pad_boxes[button] = box
             else:
-                box = ttk.Label(table, text=_('{} trigger').format(PS_BUTTON_NAMES[button]), style='Muted.TLabel')
+                fixed = (_('L1 + Touchpad right') if button == 'touchpad_left'
+                         else _('{} trigger').format(PS_BUTTON_NAMES[button]))
+                box = ttk.Label(table, text=fixed, style='Muted.TLabel')
             box.grid(row=r, column=4, sticky='w')
             self.draw_pad_icon(button)
         self.note(f, _('Keys use SDL names: letters, digits, Space, Return, Tab, Left Shift, Left Ctrl, Left Alt, '
                        'Backspace, Up, Down, Left, Right, F1 to F12. A name the game does not know keeps the default '
-                       '(the log says which). L2/R2 on the gamepad stay on the triggers. Insert and R3+L2 always open '
-                       'the port\'s menu. Applied when the game starts.'))
+                       '(the log says which). L2/R2 on the gamepad stay on the triggers. Touchpad right opens the '
+                       'game\'s pause menu; Touchpad left (photo mode) is L1 + Touchpad right on the gamepad. Insert '
+                       'and R3+L2 always open the port\'s menu. Applied when the game starts.'))
         self.ttk.Button(f, text=_('Reset to defaults'), command=self.reset_controls).grid(
             row=self.next_row(f), column=0, sticky='w', pady=(14, 0))
 
@@ -1112,7 +1204,7 @@ class Launcher:
         self.pages['log'] = page
         top = ttk.Frame(page)
         top.pack(fill='x', pady=(0, 8))
-        ttk.Label(top, text=_('Log', 'Журнал').upper(), font=('Georgia', 20)).pack(side='left')
+        ttk.Label(top, text=_('Log', 'Журнал').upper(), font=heading_font(20)).pack(side='left')
         ttk.Button(top, text=_('Copy', 'Копировать'), command=self.copy_log).pack(side='right')
         ttk.Button(top, text=_('Clear', 'Очистить'), command=lambda: self.set_log('')).pack(side='right', padx=6)
         self.log = tk.Text(page, wrap='none', bg='#0a0808', fg='#cfc6bc', insertbackground=TEXT, relief='flat',
@@ -1148,6 +1240,12 @@ class Launcher:
         title_id, _profile = game_profile_of(self.var('game_dir', 'app').get())
         names = self.app.get('game_patches', {}).get(title_id) or []
         resolution = dict((v, t[0]) for v, t in RESOLUTION_CHOICES).get(self.var('render_resolution', 'ini').get(), '?')
+        from patches import game_patchable, unported_build
+        folder = self.var('game_dir', 'app').get()
+        if not game_patchable(folder):
+            if unported_build(folder):
+                return _('{} · 60 FPS engine · full 01.02 update detected: patch support in progress').format(resolution)
+            return _('{} · 60 FPS engine · patches not available for this game build').format(resolution)
         return _('{} · {} FPS engine · {} patches').format(resolution, self.var('engine_fps', 'ini').get(), len(names))
 
     def refresh_fsr4(self):
@@ -1337,6 +1435,13 @@ class Launcher:
         if not game_info(self.app['game_dir']):
             self.messagebox.showerror(APP_NAME, _('Choose the game folder with eboot.bin (CUSA01623).',
                                                   'Выберите папку игры с eboot.bin (CUSA01623).'))
+            self.show('game')
+            return
+        missing = missing_game_files(self.app['game_dir'])
+        if missing:
+            self.messagebox.showerror(APP_NAME, _('The game dump is incomplete. Missing files:\n\n{}\n\n'
+                                                  'Dump the game again, or copy these files from a complete dump.')
+                                      .format('\n'.join(missing)))
             self.show('game')
             return
         self.set_log('')
@@ -1630,7 +1735,7 @@ def install_update(target, wait_pid):
 
 
 def main():
-    global LANG
+    global LANG, FONT_LOADED
     args = sys.argv[1:]
     if args and args[0] in ('--run', '--script'):
         sys.exit(run_role(args))
@@ -1647,6 +1752,7 @@ def main():
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp text on scaled displays
     except (AttributeError, OSError):
         pass
+    FONT_LOADED = register_font(FONT_FILE)  # titles keep Georgia without it
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
     root = tk.Tk()

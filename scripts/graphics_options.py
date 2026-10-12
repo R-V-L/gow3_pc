@@ -101,6 +101,11 @@ def patch_names(names, options, texture_fix_available=True):
     return names
 
 
+def applied_engine_fps(names):
+    """The engine rate the applied patch list gives: 60 without a frame rate patch."""
+    return max((int(n.split(' - ')[1].split()[0]) for n in names if n.startswith(f'{FPS_PREFIX} - ')), default=60)
+
+
 def environment(options):
     return {'GOW3_DEFERRED_READBACK': options['deferred_readback'],
             'GOW3_STALE_READBACK': options['stale_readback'],

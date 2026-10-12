@@ -30,7 +30,7 @@
 #define VOLUME_0DB 32768
 
 typedef struct {
-    int used, type, channels, is_float, frames, sample_bytes, std_layout;
+    int used, type, channels, is_float, frames, sample_bytes, std_layout, downmix;
     int32_t volume[8];
     SDL_AudioStream *stream;
     uint64_t next_deadline_ns; /* next return of sceAudioOutOutput */
@@ -80,6 +80,27 @@ static int port_range(int type, int *first, int *last) {
     default: return 0;
     }
 }
+/* SDL's 7.1-to-stereo matrix keeps only ~0.21 of the front channels (-13.5 dB), so the game
+   was far too quiet on stereo outputs. Folds SDL-ordered FL FR C LFE BL BR SL SR frames to
+   stereo in place: fronts at full level, center and surrounds at -3 dB, LFE dropped, clamped.
+   Returns the stereo byte count. */
+static size_t downmix_stereo(unsigned char *buf, size_t frames, int is_float) {
+    const float k=0.70710678f;
+    for (size_t f=0;f<frames;++f) {
+        float s[8], lr[2];
+        for (int c=0;c<8;++c) {
+            if (is_float) memcpy(&s[c],buf+(f*8+(size_t)c)*4,4);
+            else { int16_t v; memcpy(&v,buf+(f*8+(size_t)c)*2,2); s[c]=(float)v/32768.0f; }
+        }
+        lr[0]=s[0]+k*(s[2]+s[4]+s[6]); lr[1]=s[1]+k*(s[2]+s[5]+s[7]);
+        for (int c=0;c<2;++c) {
+            float v=lr[c]<-1.0f ? -1.0f : lr[c]>1.0f ? 1.0f : lr[c];
+            if (is_float) memcpy(buf+(f*2+(size_t)c)*4,&v,4);
+            else { int16_t o=(int16_t)(v*32767.0f); memcpy(buf+(f*2+(size_t)c)*2,&o,2); }
+        }
+    }
+    return frames*2*(is_float ? 4u : 2u);
+}
 static Port *port_of(int32_t handle, int32_t *error) {
     int id=handle & 0xff;
     if ((handle & 0x3f000000)!=0x20000000 || id>=PORTS) { *error=ERR_INVALID_PORT; return NULL; }
@@ -115,7 +136,10 @@ static ABI int32_t audio_open(int32_t user, int32_t type, int32_t index, uint32_
     p->sample_bytes=p->is_float ? 4 : 2; p->frames=(int)length; p->std_layout=format>=6;
     for (int c=0;c<8;++c) p->volume[c]=VOLUME_0DB;
     if (sdl_audio()) {
-        SDL_AudioSpec spec={p->is_float ? SDL_AUDIO_F32 : SDL_AUDIO_S16, p->channels, 48000};
+        SDL_AudioSpec device; int device_frames;
+        p->downmix=p->channels==8 && SDL_GetAudioDeviceFormat(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,&device,&device_frames)
+                   && device.channels==2;
+        SDL_AudioSpec spec={p->is_float ? SDL_AUDIO_F32 : SDL_AUDIO_S16, p->downmix ? 2 : p->channels, 48000};
         p->stream=SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,&spec,NULL,NULL);
         if (p->stream) SDL_ResumeAudioStreamDevice(p->stream);
         else fprintf(stderr,"Runtime: SDL audio stream failed (%s); port %d uses the timer sink\n",SDL_GetError(),id);
@@ -124,12 +148,13 @@ static ABI int32_t audio_open(int32_t user, int32_t type, int32_t index, uint32_
     const char *dump=getenv("GOW3_AUDIO_DUMP");
     if (dump) {
         char path[4096];
-        snprintf(path,sizeof(path),"%s.port%d.%dch.%s",dump,id,p->channels,p->is_float ? "f32" : "s16");
+        snprintf(path,sizeof(path),"%s.port%d.%dch.%s",dump,id,p->downmix ? 2 : p->channels,p->is_float ? "f32" : "s16");
         p->dump=fopen(path,"wb");
     }
     ++ports_opened;
     pthread_mutex_unlock(&table_lock);
-    printf("Runtime: audio port %d opened (type %d, %d ch, %s, %u frames)\n",id,type,p->channels,p->is_float ? "float" : "s16",length);
+    printf("Runtime: audio port %d opened (type %d, %d ch, %s, %u frames%s)\n",id,type,p->channels,p->is_float ? "float" : "s16",length,
+           p->downmix ? ", downmixed to stereo" : "");
     return (type<<16) | id | 0x20000000;
 }
 static ABI int32_t audio_close(int32_t handle) {
@@ -168,6 +193,7 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
             if (p->is_float) { float v; memcpy(&v,(const char *)data+from*4,4); v*=gain; memcpy(converted+to*4,&v,4); }
             else { int16_t v; memcpy(&v,(const char *)data+from*2,2); v=(int16_t)((float)v*gain); memcpy(converted+to*2,&v,2); }
         }
+        if (p->downmix) bytes=downmix_stereo(converted,(size_t)p->frames,p->is_float);
         if (p->dump) fwrite(converted,1,bytes,p->dump);
         if (p->stats) {
             uint64_t now=now_ns();

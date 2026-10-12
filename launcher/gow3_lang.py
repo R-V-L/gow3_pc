@@ -5,7 +5,7 @@ Missing or empty entries fall back to English."""
 
 KEYS = [
     'Play', 'Graphics', 'Display & FPS', 'Game & effects', 'Mods & patches', 'Advanced', 'Log',
-    'PLAY', 'Stop', 'native port · Windows', "In the game: Insert or R3+L2\nopens the port's menu.",
+    'PLAY', 'Stop', 'PC port · Windows', "In the game: Insert or R3+L2\nopens the port's menu.",
     'Ready check', 'Quick settings', 'Frame rate', 'Upscaler', 'Fullscreen', '{} · game version {}',
     'Game folder not set', 'Choose your game folder (Game & effects)',
     '✗ No eboot.bin in the game folder (Game & effects)', '✓ Saves found in {}',
@@ -130,7 +130,7 @@ TRANSLATIONS = {
     ],
     'es': [
         'Jugar', 'Gráficos', 'Pantalla y FPS', 'Juego y efectos', 'Mods y parches', 'Avanzado',
-        'Registro', 'JUGAR', 'Detener', 'port nativo · Windows',
+        'Registro', 'JUGAR', 'Detener', 'port para PC · Windows',
         'En el juego: Insert o R3+L2\nabre el menú del port.', 'Comprobación', 'Ajustes rápidos',
         'Velocidad de fotogramas', 'Escalador', 'Pantalla completa', '{} · versión del juego {}',
         'Carpeta del juego sin elegir', 'Elige la carpeta del juego (Juego y efectos)',
@@ -202,7 +202,7 @@ TRANSLATIONS = {
     ],
     'pt': [
         'Jogar', 'Gráficos', 'Tela e FPS', 'Jogo e efeitos', 'Mods e patches', 'Avançado',
-        'Registro', 'JOGAR', 'Parar', 'port nativo · Windows',
+        'Registro', 'JOGAR', 'Parar', 'port para PC · Windows',
         'No jogo: Insert ou R3+L2\nabre o menu do port.', 'Verificação', 'Ajustes rápidos',
         'Taxa de quadros', 'Upscaler', 'Tela cheia', '{} · versão do jogo {}',
         'Pasta do jogo não definida', 'Escolha a pasta do jogo (Jogo e efeitos)',
@@ -275,7 +275,7 @@ TRANSLATIONS = {
     ],
     'fr': [
         'Jouer', 'Graphismes', 'Affichage et FPS', 'Jeu et effets', 'Mods et patchs', 'Avancé',
-        'Journal', 'JOUER', 'Arrêter', 'portage natif · Windows',
+        'Journal', 'JOUER', 'Arrêter', 'portage PC · Windows',
         'En jeu : Insert ou R3+L2\nouvre le menu du portage.', 'Vérification', 'Réglages rapides',
         'Fréquence d’images', 'Upscaler', 'Plein écran', '{} · version du jeu {}',
         'Dossier du jeu non défini', 'Choisissez le dossier du jeu (Jeu et effets)',
@@ -415,7 +415,7 @@ TRANSLATIONS = {
     ],
     'it': [
         'Gioca', 'Grafica', 'Schermo e FPS', 'Gioco ed effetti', 'Mod e patch', 'Avanzate',
-        'Registro', 'GIOCA', 'Ferma', 'port nativo · Windows',
+        'Registro', 'GIOCA', 'Ferma', 'port per PC · Windows',
         'Nel gioco: Ins o R3+L2\napre il menu del port.', 'Verifica', 'Impostazioni rapide',
         'Frequenza fotogrammi', 'Upscaler', 'Schermo intero', '{} · versione del gioco {}',
         'Cartella del gioco non impostata', 'Scegli la cartella del gioco (Gioco ed effetti)',

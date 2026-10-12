@@ -6,7 +6,9 @@
      address holds the expected original value (1920, 1080, 960x540, video arena 0x50000000).
      "Frame Rate Patch - 120 FPS" is ported by hand: the frame rate constant (59.94) is at 0x75dbe4
      and the swing energy multiplier reads the frame rate at 0x48ff1a; its replacement LEA points at
-     the 60.0 constant at 0x6fc0d8. "Skip Intro" does not match this build and is left out. -->
+     the 60.0 constant at 0x6fc0d8. "Skip Intro" is ported by hand: its writes are 0x10 higher at
+     0x584950 and 0x4c8440 (the boot-state getter), its call site 0x41b36a is unchanged (callee
+     0x4b4c90), and its cave is the 16-byte NOP pad at 0x612170; the flag 0x1e79258 matches. -->
 <Patch>
     <TitleID>
         <ID>CUSA01623</ID>
@@ -123,6 +125,14 @@
         <PatchList>
             <Line Type="bytes" Address="0x0048ff1a" Value="488d05b7c12600"/>
             <Line Type="bytes" Address="0x0075dbe4" Value="00007043"/>
+        </PatchList>
+    </Metadata>
+    <Metadata Title="God of War III Remastered" Name="Skip Intro" Note="Skips the initial logos. Thanks to illusion0001 aka illusionyy for the PS3 patch which made this very easy." Author="cuesta4" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
+        <PatchList>
+            <Line Type="bytes" Address="0x00584950" Value="eb34"/>
+            <Line Type="bytes" Address="0x004c8440" Value="c7050e0e9b0101000000b801000000c3"/>
+            <Line Type="bytes" Address="0x0041b36a" Value="e8016e1f00"/>
+            <Line Type="bytes" Address="0x00612170" Value="c705de70860101000000e9112beaff"/>
         </PatchList>
     </Metadata>
     <Metadata Title="God of War III Remastered" Name="Skip Any Video With X Button" Note="Allows manual skipping of cinematics any cinematic with the X button. Thanks to illusion0001 aka illusionyy for the PS3 patch which made this very easy." Author="cuesta4" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="true">

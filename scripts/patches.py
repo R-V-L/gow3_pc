@@ -71,6 +71,9 @@ PATCHES_DIR=Path(__file__).resolve().parent.parent/'patches'
 # its code elsewhere: byte writes there corrupt it).
 GAMES=[({'CUSA01623'},PATCHES_DIR/'God_of_War_III_Remastered.xml','01.02',
         'd85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299')]
+# Recognized builds without patch support yet, so the launcher can name them instead of a generic
+# mismatch. The full 01.02 update has this eboot for both CUSA01623 and CUSA01715.
+UNPORTED_BUILDS={'6e72330e9092e5164049b865e5568f2d450904001a73fe0a2f4b39194c195b3c':'full 01.02 update'}
 DMEM_RETAIL_MB=5056  # runtime_memory.c POOL_SIZE default
 
 
@@ -87,15 +90,32 @@ def game_profile(title_id):
     return next((g for g in GAMES if title_id in g[0]),None)
 
 
+def eboot_sha256(game):
+    import hashlib
+    try:
+        return hashlib.sha256((Path(game)/'eboot.bin').read_bytes()).hexdigest()
+    except (OSError, TypeError):
+        return None
+
+
 def eboot_matches(game, profile):
     """Whether the game's eboot.bin is the build the profile's patches were checked against."""
     if not profile or not profile[3]:
         return True
-    import hashlib
-    try:
-        return hashlib.sha256((Path(game)/'eboot.bin').read_bytes()).hexdigest()==profile[3]
-    except OSError:
+    return eboot_sha256(game)==profile[3]
+
+
+def unported_build(game):
+    """Name of a recognized eboot.bin build that has no patch support yet, else None."""
+    return UNPORTED_BUILDS.get(eboot_sha256(game)) if game else None
+
+
+def game_patchable(game):
+    """Whether the built-in patches apply to this game folder: a known game, version and build."""
+    if not game:
         return False
+    profile=game_profile(game_title_id(game))
+    return bool(profile) and game_app_version(game)==profile[2] and eboot_matches(game,profile)
 
 
 # God of War III notes: the texture fix and the resolution patches both resize the video arena;
@@ -212,7 +232,11 @@ def main():
         return
     if not eboot_matches(a.game_dir,profile) and not os.environ.get('GOW3_FORCE_PATCHES'):
         write_patches(a.out,[])
-        print(f'Patches: eboot.bin is not the build {xml.name} was checked against: none applied')
+        build=unported_build(a.game_dir)
+        if build:
+            print(f'Patches: eboot.bin is the {build}, which has no patch support yet: none applied')
+        else:
+            print(f'Patches: eboot.bin is not the build {xml.name} was checked against: none applied')
         return
     names=selected_patches(xml,needed,a.extra,os.environ.get('GOW3_PATCHES_ONLY')=='1')
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())

@@ -197,6 +197,9 @@ void Load() {
     v.startup_live_resolution = v.live_resolution;
     v.startup_render_resolution = v.render_resolution;
     v.startup_engine_fps = v.engine_fps;
+    const char* applied = std::getenv("GOW3_ENGINE_FPS");
+    v.applied_engine_fps = applied && applied[0] ? Gow3Graphics::ParseEngineFps(std::atoi(applied))
+                                                 : v.engine_fps.load();
     v.startup_deferred_readback = v.deferred_readback;
     v.startup_stale_readback = v.stale_readback;
 }

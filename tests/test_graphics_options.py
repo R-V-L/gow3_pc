@@ -58,6 +58,13 @@ class GraphicsOptionsTest(unittest.TestCase):
         self.assertEqual(g.patch_names(['Resolution Patch - 4K', 'Skip Any Video With X Button'], native),
                          ['Bug Fix - Texture Corruption Fix', 'Skip Any Video With X Button'])
 
+    def test_applied_engine_fps(self):
+        # The engine runs above 60 only with a frame rate patch in the applied list.
+        self.assertEqual(g.applied_engine_fps(['Skip Any Video With X Button', 'Frame Rate Patch - 240 FPS']), 240)
+        self.assertEqual(g.applied_engine_fps(['Frame Rate Patch - 120 FPS']), 120)
+        self.assertEqual(g.applied_engine_fps(['Bug Fix - Texture Corruption Fix']), 60)
+        self.assertEqual(g.applied_engine_fps([]), 60)
+
     def test_environment(self):
         env = g.environment(g.startup_options({'stale_readback': '0'}))
         self.assertEqual(env, {'GOW3_DEFERRED_READBACK': '1', 'GOW3_STALE_READBACK': '0', 'GOW3_ASYNC_SHADERS': '1'})

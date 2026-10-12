@@ -38,13 +38,23 @@ int main(void) {
     assert(apply_button_map(&bad,"bogus=Q,cross=NotAKey,circle,=Q,square=,,",true)==0);
     assert(bad.count==key_map.count && pressed_by(&bad,SDL_SCANCODE_SPACE)==BTN_CROSS);
 
-    /* Gamepad: Xbox layout swap; both touchpad sources go when touchpad is remapped. */
+    /* Gamepad: Xbox layout swap; 'touchpad' is the left click, Back stays the right click and
+     * the real touchpad click keeps its fingers. */
     ButtonMap pad=pad_map;
     assert(apply_button_map(&pad,"cross=b,circle=a,touchpad=misc1",false)==3);
     assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_EAST)==BTN_CROSS);
     assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_SOUTH)==BTN_CIRCLE);
-    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_BACK)==0 && pressed_by(&pad,SDL_GAMEPAD_BUTTON_TOUCHPAD)==0);
-    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_MISC1)==BTN_TOUCHPAD);
+    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_MISC1)==CLICK_LEFT);
+    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_BACK)==CLICK_RIGHT);
+    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_TOUCHPAD)==BTN_TOUCHPAD);
+    assert(apply_button_map(&pad,"touchpad_right=guide,touchpad_left=paddle1",false)==2);
+    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_BACK)==0 && pressed_by(&pad,SDL_GAMEPAD_BUTTON_GUIDE)==CLICK_RIGHT);
+    assert(pressed_by(&pad,SDL_GAMEPAD_BUTTON_MISC1)==0 && pressed_by(&pad,SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1)==CLICK_LEFT);
     assert(apply_button_map(&pad,"cross=Space",false)==0); /* a key name is no gamepad button */
+    /* Keyboard: each side has a key of its own. */
+    assert(pressed_by(&key_map,SDL_SCANCODE_TAB)==CLICK_LEFT && pressed_by(&key_map,SDL_SCANCODE_BACKSPACE)==CLICK_RIGHT);
+    ButtonMap sides=key_map;
+    assert(apply_button_map(&sides,"touchpad_right=Delete",true)==1);
+    assert(pressed_by(&sides,SDL_SCANCODE_BACKSPACE)==0 && pressed_by(&sides,SDL_SCANCODE_DELETE)==CLICK_RIGHT);
     puts("PASS: pad and key maps");
 }

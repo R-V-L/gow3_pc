@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
+#include <cstdlib>
 #include <boost/container/static_vector.hpp>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -112,6 +114,18 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
     const std::size_t num_physical_devices = static_cast<u16>(physical_devices.size());
     ASSERT_MSG(num_physical_devices > 0, "No physical devices found");
     LOG_INFO(Render_Vulkan, "Found {} physical devices", num_physical_devices);
+    // gow3: the device list in the game log tells a missing driver apart from a wrong choice.
+    for (std::size_t i = 0; i < num_physical_devices; ++i) {
+        const auto props = physical_devices[i].getProperties();
+        std::printf("GPU %zu: %s (%s)\n", i, props.deviceName.data(),
+                    vk::to_string(props.deviceType).c_str());
+    }
+    // gow3: a saved choice can outlive its GPU (removed card, new driver order).
+    if (physical_device_index >= static_cast<s32>(num_physical_devices)) {
+        std::printf("GPU: selected GPU %d is not in the device list; choosing automatically\n",
+                    physical_device_index);
+        physical_device_index = -1;
+    }
 
     if (physical_device_index < 0) {
         std::vector<
@@ -162,12 +176,9 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
         });
         physical_device = physical_devices[std::get<0>(properties2[0])];
     } else {
-        ASSERT_MSG(physical_device_index < num_physical_devices,
-                   "Invalid physical device index {} provided when only {} devices exist",
-                   physical_device_index, num_physical_devices);
-
         physical_device = physical_devices[physical_device_index];
     }
+    std::printf("GPU: using %s\n", physical_device.getProperties().deviceName.data());
 
     available_extensions = GetSupportedExtensions(physical_device);
     format_properties = GetFormatProperties(physical_device);
@@ -207,6 +218,45 @@ std::string Instance::GetDriverVersionName() {
         return fmt::format("{}.{}", major, minor);
     }
     return GetReadableVersion(version);
+}
+
+namespace {
+bool PipelineBinaryCacheRequested() {
+    const char* setting = std::getenv("GOW3_PIPELINE_BINARIES");
+    return !setting || *setting != '0';
+}
+}
+
+bool InitializePipelineBinaryCache(vk::Device device, bool supported,
+                                   vk::PipelineBinaryKeyKHR& global_key) {
+    global_key = vk::PipelineBinaryKeyKHR{};
+    if (!PipelineBinaryCacheRequested()) {
+        LOG_INFO(Render_Vulkan, "Pipeline binary cache disabled by settings; using normal compilation");
+        return false;
+    }
+    if (!supported) {
+        LOG_INFO(Render_Vulkan, "Pipeline binary cache unsupported; using normal compilation");
+        return false;
+    }
+    const auto& dispatch = VULKAN_HPP_DEFAULT_DISPATCHER;
+    if (!dispatch.vkGetPipelineKeyKHR || !dispatch.vkCreatePipelineBinariesKHR ||
+        !dispatch.vkGetPipelineBinaryDataKHR || !dispatch.vkDestroyPipelineBinaryKHR ||
+        !dispatch.vkReleaseCapturedPipelineDataKHR) {
+        LOG_WARNING(Render_Vulkan, "Pipeline binary cache functions unavailable; using normal compilation");
+        return false;
+    }
+    const auto result = device.getPipelineKeyKHR(nullptr, &global_key);
+    if (result != vk::Result::eSuccess || !global_key.keySize ||
+        global_key.keySize > VK_MAX_PIPELINE_BINARY_KEY_SIZE_KHR) {
+        const auto key_size = global_key.keySize;
+        global_key = vk::PipelineBinaryKeyKHR{};
+        LOG_WARNING(Render_Vulkan,
+                    "Pipeline binary cache key unavailable (result {}, size {}); using normal compilation",
+                    vk::to_string(result), key_size);
+        return false;
+    }
+    LOG_INFO(Render_Vulkan, "Pipeline binary disk cache enabled");
+    return true;
 }
 
 bool Instance::CreateDevice() {
@@ -278,7 +328,7 @@ bool Instance::CreateDevice() {
 
     // Optional
     maintenance_5 = add_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
-    pipeline_binaries = maintenance_5 &&
+    pipeline_binaries = PipelineBinaryCacheRequested() && maintenance_5 &&
         feature_chain.get<vk::PhysicalDeviceMaintenance5FeaturesKHR>().maintenance5 &&
         feature_chain.get<vk::PhysicalDevicePipelineBinaryFeaturesKHR>().pipelineBinaries &&
         add_extension(VK_KHR_PIPELINE_BINARY_EXTENSION_NAME);
@@ -661,28 +711,21 @@ bool Instance::CreateDevice() {
     device = std::move(dev);
 
     VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
-    if (pipeline_binaries) {
-        const auto& dispatch = VULKAN_HPP_DEFAULT_DISPATCHER;
-        const bool callable = dispatch.vkGetPipelineKeyKHR && dispatch.vkCreatePipelineBinariesKHR &&
-            dispatch.vkGetPipelineBinaryDataKHR && dispatch.vkDestroyPipelineBinaryKHR &&
-            dispatch.vkReleaseCapturedPipelineDataKHR;
-        // gow3: NVIDIA's vkGetPipelineKeyKHR(device, nullptr, &key) writes one dword past an
-        // internal stack buffer and corrupts the caller's saved rbx (reproduced with 595.91.07);
-        // whether that crashes depends on register allocation, so don't request the global key on
-        // that driver. A zero key disables the whole pipeline-binary cache, which also skips the
-        // per-pipeline driver calls (CreateCachedGraphicsPipeline gates on the global key).
-        const bool global_key_safe = EmulatorSettingsImpl::Flag(
-            "GOW3_PIPELINE_BINARY_GLOBAL_KEY", driver_id != vk::DriverId::eNvidiaProprietary);
-        if (!callable || !global_key_safe ||
-            device->getPipelineKeyKHR(nullptr, &pipeline_binary_global_key) !=
-                vk::Result::eSuccess ||
-            !pipeline_binary_global_key.keySize ||
-            pipeline_binary_global_key.keySize > VK_MAX_PIPELINE_BINARY_KEY_SIZE_KHR) {
-            pipeline_binary_global_key.keySize = 0;
-            LOG_WARNING(Render_Vulkan, "Pipeline binary cache unavailable; using normal compilation");
-        } else {
-            LOG_INFO(Render_Vulkan, "Pipeline binary disk cache enabled");
-        }
+    // gow3: NVIDIA's vkGetPipelineKeyKHR(device, nullptr, &key) writes one dword past an
+    // internal stack buffer and corrupts the caller's saved rbx (reproduced with 595.91.07);
+    // whether that crashes depends on register allocation, so don't request the global key on
+    // that driver. A zero key disables the whole pipeline-binary cache, which also skips the
+    // per-pipeline driver calls (CreateCachedGraphicsPipeline gates on the global key).
+    const bool global_key_safe = EmulatorSettingsImpl::Flag(
+        "GOW3_PIPELINE_BINARY_GLOBAL_KEY", driver_id != vk::DriverId::eNvidiaProprietary);
+    if (!global_key_safe) {
+        pipeline_binary_global_key = vk::PipelineBinaryKeyKHR{};
+        pipeline_binaries = false;
+        LOG_INFO(Render_Vulkan,
+                 "Pipeline binary global key disabled for this driver; using normal compilation");
+    } else {
+        pipeline_binaries =
+            InitializePipelineBinaryCache(*device, pipeline_binaries, pipeline_binary_global_key);
     }
     if (Dlss* dlss = Dlss::Get()) {
         dlss->Initialize(*instance, physical_device, *device);

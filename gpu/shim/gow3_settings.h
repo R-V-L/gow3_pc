@@ -81,6 +81,9 @@ struct Values {
     /// restores the previous startup options when a launch never cleared it.
     std::atomic<bool> restart_unconfirmed{false};
     int startup_render_resolution = 0, startup_engine_fps = 120;
+    /// The engine rate this launch really runs at (run.py's GOW3_ENGINE_FPS): 60 when the frame
+    /// rate patch does not apply to this game build.
+    std::atomic<int> applied_engine_fps{120};
     bool startup_deferred_readback = true, startup_stale_readback = true;
     // FSR 4 checks (menu): the provider's auto exposure, the jitter sign it is given.
     std::atomic<bool> fsr4_auto_exposure{true};

@@ -74,4 +74,10 @@ inline int EffectiveFps(int limit, int engine_fps) {
     return limit == 0 || limit > engine_fps ? engine_fps : limit;
 }
 
+/// The present thread's frame limit: never above the engine rate the patches applied, since the
+/// engine steps a fixed time per frame and faster flips speed the game up. 0 stays vblank paced.
+inline int PresentLimit(int limit, int engine_fps) {
+    return limit == 0 ? 0 : EffectiveFps(limit, engine_fps);
+}
+
 } // namespace Gow3Graphics

@@ -52,9 +52,10 @@ with "Apply and restart").
 
 **Experimental draw predication.** `GOW3_PREDICATION=1` emulates `IT_SET_PREDICATION` with
 `VK_EXT_conditional_rendering` and GPU-side ZPASS occlusion queries, so draws the game marks
-occluded are skipped on the GPU. It is off by default because its visual result has not been
-validated on hardware yet; enable it to test (on the Deck in particular) and compare frame rates
-with `GOW3_FRAME_STATS=1`. It fails open when `VK_EXT_conditional_rendering` is unavailable.
+occluded are skipped on the GPU. It is **off by default**: measured on the Steam Deck (1080p,
+GPU-bound) it costs ~23% frame rate at the same scene and GPU clock (the per-draw occlusion
+queries and query-result copies stall the GPU, and the culling does not pay for it). Enable only
+to experiment; it fails open when `VK_EXT_conditional_rendering` is unavailable.
 
 ## Build from source
 

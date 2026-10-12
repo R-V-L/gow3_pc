@@ -24,6 +24,8 @@ and the commits for the exact changes.
   thread on NVIDIA (the PR measured 34.6 → 128.6 FPS median on a laptop NVIDIA GPU). The default
   follows the GPU vendor — `cached` on NVIDIA, `device` (the old placement, safe for AMD UMA /
   Smart Access Memory) on everything else — and `GOW3_STREAM_MEMORY=device|host|cached` overrides.
+  Measured **neutral on the Steam Deck** (UMA): `cached` and `device` give the same frame rate and
+  GPU power, so AMD keeps `device`.
 - **`IT_SET_PREDICATION` no longer drains the pipeline** — also from PR #1. The opcode is still
   unimplemented (ignored), but it is now treated as pipelineable, so God of War III's per-draw
   predication setup stops forcing a queue drain (15–30k drains/s, ~60% of the GPU thread's time).
@@ -36,7 +38,10 @@ and the commits for the exact changes.
   are written back asynchronously. Bool32/Bool64 predicates sample guest memory on the GPU
   timeline. It fails open when the extension is unavailable, and the ZPASS/SetPredication packets
   are routed through the draw pipe so the video core's command producer stays single-threaded.
-  Off by default because its visual result has not been validated on hardware yet.
+  **Off by default.** Measured on the Steam Deck (AMD Van Gogh, RADV, 1080p GPU-bound): enabling
+  it costs ~23% frame rate (44 vs 57 FPS) at the same scene and the same (max) GPU clock, and
+  *lowers* GPU power (14 vs 16 W) — the GPU stalls on the per-draw occlusion queries and the
+  query-result copies, and the culling does not pay for it. Enable only to experiment.
 
 ### Fixed
 - **Startup crash on the NVIDIA proprietary driver** (`Vulkan::Instance::CreateDevice` →

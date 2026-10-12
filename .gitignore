@@ -1,4 +1,6 @@
 out/
+.deps/
+.local/
 __pycache__/
 user/
 *.mp4

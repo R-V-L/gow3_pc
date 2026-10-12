@@ -38,8 +38,10 @@ judging the frame rate.
 
 The Deck panel is 1280×800, so the Deck launcher writes a tuned preset (see `gow3-deck.ini`):
 `render_resolution=720p` (the game is 16:9, so the presenter letterboxes it into the 16:10 panel
-with small black bars), `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling. If you want more
-headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise `engine_fps` to 120.
+with small black bars), `engine_fps=60`, `fps_limit=60`. FSR 1 and RCAS are enabled but idle at
+720p: the upscaler only runs when **both** output dimensions are larger, and the 16:9 image is
+already 1280 wide like the panel. Drop `render_resolution` to `480p` for more headroom — FSR 1
+then engages and upscales back to the panel; for less, raise `engine_fps` to 120.
 
 > **16:10 note.** There is a `Resolution Patch - 800p` (1280×800) for the panel, but the game's
 > projection is 16:9: it changes only the output size, so 16:10 **fills the panel by stretching

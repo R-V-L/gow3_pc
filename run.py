@@ -80,11 +80,6 @@ def main():
         env.pop(key, None)
     derived = []
     sys.path.insert(0, str(PORT / 'scripts'))
-    import graphics_options
-    graphics, reverted = graphics_options.prepare(env['GOW3_CONFIG'], out / 'graphics_state.json')
-    if reverted:
-        print('Graphics: the last restart never reached the game; previous options restored', flush=True)
-    env.update(graphics_options.environment(graphics))
     if not env.get('GOW3_FSR411_DIR') and not (PORT / 'fsr4_411').is_dir() and (data / 'fsr4_411').is_dir():
         env['GOW3_FSR411_DIR'] = str(data / 'fsr4_411')
 
@@ -112,8 +107,13 @@ def main():
         run_script('link_modules.py', game, '--out', out)
         run_script('content_profile.py', game, '--out', out, '--sku', env.get('GOW3_CONTENT_SKU', 'full'))
 
-        from patches import (eboot_matches, game_app_version, game_profile, game_title_id,
-                             patch_requirements, selected_patches)
+        import launch_env
+        from patches import eboot_matches, game_app_version, game_profile, game_title_id
+        # Graphics options, patch selection and DMEM/VBlank: one source, shared with run.sh.
+        plan = launch_env.derive(game, env['GOW3_CONFIG'], out / 'graphics_state.json', env)
+        if plan['reverted']:
+            print('Graphics: the last restart never reached the game; previous options restored', flush=True)
+        env.update(plan['updates'])
         profile = game_profile(game_title_id(game))
         patched = bool(profile) and ((game_app_version(game) == profile[2] and eboot_matches(game, profile))
                                      or bool(env.get('GOW3_FORCE_PATCHES')))
@@ -125,19 +125,11 @@ def main():
             env.setdefault('GOW3_WINDOW_ICON', str(out / 'window_icon.bmp'))
         except (ImportError, OSError):
             pass
-        # The temporal upscalers and motion vectors are not calibrated for this game yet; linear
-        # image readbacks fix its corrupted textures.
-        env.setdefault('GOW3_UPSCALER', 'none')
-        env.setdefault('GOW3_READBACK_LINEAR', '1')
         if patched:
-            # The patch notes give the direct memory and VBlank rate the selected patches need.
-            names = selected_patches(profile[1], profile[2], env.get('GOW3_PATCHES', ''), env.get('GOW3_PATCHES_ONLY') == '1')
-            # gow3.ini decides the resolution and frame rate patches (in-game menu, launcher).
-            names = graphics_options.patch_names(names, graphics)
-            env['GOW3_PATCHES'] = ';'.join(names)
+            env['GOW3_PATCHES'] = ';'.join(plan['patch_names'])
             env['GOW3_PATCHES_ONLY'] = '1'
-            dmem, vblank = patch_requirements(profile[1], names, profile[2])
-            for key, value in (('GOW3_DMEM_MB', dmem), ('GOW3_VBLANK_HZ', vblank)):
+            # The patch notes give the direct memory and VBlank rate the selected patches need.
+            for key, value in (('GOW3_DMEM_MB', plan['dmem']), ('GOW3_VBLANK_HZ', plan['vblank'])):
                 if value and key not in env:
                     env[key] = str(value)
                     derived.append(key)

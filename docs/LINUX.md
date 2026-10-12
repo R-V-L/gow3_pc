@@ -32,9 +32,14 @@ judging the frame rate.
 ### Steam Deck performance
 
 The Deck panel is 1280×800, so the defaults are tuned for it (see `gow3.ini.example`):
-`render_resolution=800p` (the panel's 16:10), `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling.
-If you want more headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise
-`engine_fps` to 120.
+`render_resolution=720p` (the game is 16:9, so the presenter letterboxes it into the 16:10 panel
+with small black bars), `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling. If you want more
+headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise `engine_fps` to 120.
+
+> **16:10 note.** There is a `Resolution Patch - 800p` (1280×800) for the panel, but the game's
+> projection is 16:9: it changes only the output size, so 16:10 **fills the panel by stretching
+> vertically** rather than rendering a true 16:10 image. Use 720p (correct aspect, letterboxed)
+> unless you prefer filling over aspect.
 The in-game menu (**Insert**, or **R3+L2**) changes these (render resolution and engine FPS apply
 with "Apply and restart").
 

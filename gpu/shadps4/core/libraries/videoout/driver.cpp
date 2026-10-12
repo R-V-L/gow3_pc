@@ -680,14 +680,17 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     };
 
     // gow3: with a frame limit (uncapped presets) a queued flip is presented as soon as it
-    // arrives and its slot allows, between vblanks, instead of on the next vblank tick.
-    bool immediate_flips = frame_limit != 0;
+    // arrives and its slot allows, between vblanks, instead of on the next vblank tick. Only
+    // when the limit exceeds the vblank rate does that matter; at or below it the outer
+    // vblank-paced flip below already satisfies the limit (and the sub-vblank path stalls the
+    // guest on this port, so keep it off there).
+    bool immediate_flips = frame_limit > EmulatorSettings.GetVblankFrequency();
 
     while (!token.stop_requested()) {
         if (const u32 limit = current_limit(); limit != frame_limit) {
             frame_limit = limit;
             frame_period = limit ? std::chrono::nanoseconds(1000000000 / limit) : std::chrono::nanoseconds(0);
-            immediate_flips = limit != 0;
+            immediate_flips = limit > EmulatorSettings.GetVblankFrequency();
             next_flip = std::chrono::steady_clock::now();
             std::printf("VideoOut: frame limit %u FPS\n", limit);
         }

@@ -1,0 +1,73 @@
+name: linux
+
+on:
+  push:
+    branches: [ main, gow3 ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Dependency environment
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: ci/environment.yml
+          cache-environment: true
+          init-shell: bash
+
+      - name: Build the source-only dependencies (robin-map, Zydis, Vulkan-Headers)
+        shell: bash -el {0}
+        run: bash ci/setup-deps.sh "$CONDA_PREFIX"
+
+      - name: Build the port
+        shell: bash -el {0}
+        run: |
+          source ci/env.sh
+          bash build.sh
+
+      - name: Tests
+        shell: bash -el {0}
+        run: |
+          source ci/env.sh
+          python3 -m unittest discover -s tests
+          bash build.sh --test
+
+      - name: Package (Steam Deck / portable)
+        shell: bash -el {0}
+        run: |
+          source ci/env.sh
+          bash packaging/deck.sh
+          tar -czf dist/gow3-deck.tar.gz -C dist gow3-deck
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gow3-deck
+          path: dist/gow3-deck.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gow3-deck
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gow3-deck.tar.gz
+          generate_release_notes: true

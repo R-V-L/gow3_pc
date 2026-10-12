@@ -1,0 +1,41 @@
+# Dependency environment for the Linux build and CI. Create with micromamba/conda, e.g.:
+#   micromamba create -p .deps/env -c conda-forge --override-channels -f ci/environment.yml
+# conda-forge lacks zydis and robin-map and ships an old Vulkan-Headers; ci/setup-deps.sh builds
+# those into the same prefix.
+name: gow3
+channels:
+  - conda-forge
+dependencies:
+  - gcc_linux-64
+  - gxx_linux-64
+  - sysroot_linux-64
+  - binutils_impl_linux-64
+  - cmake
+  - ninja
+  - make
+  - pkg-config
+  - patchelf
+  - python
+  - libvulkan-loader
+  - vulkan-headers
+  - vulkan-tools
+  - sdl3
+  - ffmpeg
+  - xxhash
+  - xorg-libx11
+  - xorg-libxcb
+  - xorg-xorgproto
+  - xorg-libxext
+  - xorg-libxrandr
+  - xorg-libxau
+  - xorg-libxdmcp
+  - wayland
+  - libxkbcommon
+  - boost-cpp
+  - fmt
+  - vulkan-memory-allocator
+  - glslang
+  - spirv-tools
+  - spirv-headers
+  - spirv-cross
+  - xbyak

@@ -3,6 +3,7 @@ name: linux
 on:
   push:
     branches: [ main, gow3 ]
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 

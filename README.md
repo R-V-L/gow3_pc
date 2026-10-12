@@ -2,7 +2,8 @@
 
 **English** | [Português (Brasil)](README.pt-BR.md)
 
-A native port of **God of War III Remastered** (PlayStation 4) to Windows 10 and 11.
+A native port of **God of War III Remastered** (PlayStation 4) to Windows 10/11 and Linux
+(including the Steam Deck).
 
 The game's original executable runs directly on the PC's processor (the PS4 uses the same x86-64
 architecture). A runtime written for this game replaces the PS4 system libraries, and the
@@ -97,6 +98,24 @@ Patches and fixes are included and applied automatically: texture fix, skip vide
 **If something goes wrong**
 - Black screen at start: **Advanced → Clear shader cache**, then start again.
 - The game does not open: check the **Log** page, or send `user\last_run.log` with your report.
+
+## Linux and Steam Deck
+
+There is a native Linux build too — the same probe and `run.sh`, no launcher GUI. On the Steam
+Deck it runs from Desktop Mode. Full notes: [docs/LINUX.md](docs/LINUX.md).
+
+**Download and play (release)**
+1. Download `gow3-deck.tar.gz` from the releases and extract it anywhere.
+2. Put your game folder (the one with `eboot.bin`, e.g. `CUSA01623`) inside the extracted
+   folder, next to `bin/`.
+3. Run `start-gow3.sh`, or double-click `God of War III.desktop`.
+
+The game folder is found automatically; saves, the shader cache and `gow3.ini` go to
+`~/.local/share/gow3`. The first launch compiles shaders (a minute or two). Nothing is installed
+system-wide and the host's Vulkan driver is used.
+
+**Build from source:** see [docs/LINUX.md](docs/LINUX.md). Dependencies are local under `.deps/`
+(no root); `bash build.sh` then `GOW3_GAME_DIR=/path/to/CUSA01623 bash run.sh`.
 
 ## Requirements
 

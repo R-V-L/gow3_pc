@@ -15,6 +15,7 @@ dependencies:
   - make
   - pkg-config
   - patchelf
+  - ccache
   - python
   - libvulkan-loader
   - vulkan-headers

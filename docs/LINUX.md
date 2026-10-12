@@ -9,15 +9,20 @@ RADV/ANV and the proprietary NVIDIA driver both work.
 
 The release archive **is** the port folder. Three steps:
 
-1. **Download** the release (`gow3-deck.tar.gz`) and extract it anywhere.
+1. **Download** the release (`gow3-linux-x86_64.tar.gz`) and extract it anywhere.
 2. **Put your game dump inside it** — the folder that has `eboot.bin` (e.g. `CUSA01623/`),
    next to `bin/`.
-3. **Run** `start-gow3.sh` (or double-click `God of War III.desktop`).
+3. **Run** `start-gow3.sh` (any Linux), or `start-gow3-deck.sh` / double-click
+   `God of War III.desktop` on the Steam Deck.
 
 ```
 gow_3/
-  bin/ scripts/ patches/ run.sh start-gow3.sh "God of War III.desktop" ...
-  CUSA01623/            <- your game (the folder with eboot.bin)
+  bin/ scripts/ patches/ run.sh
+  start-gow3.sh            # any Linux
+  start-gow3-deck.sh       # Steam Deck: writes the tuned preset on first run
+  gow3-deck.ini            # the Steam Deck preset
+  "God of War III.desktop"
+  CUSA01623/               <- your game (the folder with eboot.bin)
 ```
 
 The game folder is found automatically (`CUSA01623/`, or any subfolder holding an `eboot.bin`);
@@ -31,7 +36,7 @@ judging the frame rate.
 
 ### Steam Deck performance
 
-The Deck panel is 1280×800, so the defaults are tuned for it (see `gow3.ini.example`):
+The Deck panel is 1280×800, so the Deck launcher writes a tuned preset (see `gow3-deck.ini`):
 `render_resolution=720p` (the game is 16:9, so the presenter letterboxes it into the 16:10 panel
 with small black bars), `engine_fps=60`, `fps_limit=60`, FSR 1 upscaling. If you want more
 headroom, drop `render_resolution` to `480p` (keep FSR 1); for less, raise `engine_fps` to 120.
@@ -90,10 +95,10 @@ derives `GOW3_DMEM_MB` and `GOW3_VBLANK_HZ` from the selected patches' notes via
 Fallbacks: `GOW3_AUDIO=none bash run.sh` (silent audio), `bash run.sh --software` (lavapipe, the
 vendor-neutral proxy).
 
-### Build the Steam Deck / portable package
+### Build the Linux / portable package
 
 ```bash
-bash packaging/deck.sh        # -> dist/gow3-deck/ (the port folder, ~490 MB)
+bash packaging/linux.sh       # -> dist/gow3-linux/ (the port folder)
 ```
 
 ## Tests
@@ -154,6 +159,7 @@ this Windows-focused fork. What was needed to make it build **and behave** corre
    load (`undefined symbol: xcb_dri3_get_supported_modifiers_window_modifiers` →
    `VK_ERROR_INCOMPATIBLE_DRIVER`), so the ICD and the port share the host's copy.
 
-5. **Deck defaults.** `packaging/deck-gow3.ini`: **800p (1280×800, 16:10)** render + engine 60 +
-   FSR 1 (the stock defaults — 1080p render and the 120 FPS engine patch — are too heavy for Van
-   Gogh, and 16:9 render resolutions letterbox the 16:10 panel).
+5. **Deck preset.** `packaging/gow3-deck.ini` (used by `start-gow3-deck.sh`): 720p render + engine
+   60 + FSR 1 (the stock defaults — 1080p render and the 120 FPS engine patch — are too heavy for
+   Van Gogh). A `Resolution Patch - 800p` exists too, but the game's 16:9 projection makes it
+   stretch to fill the 16:10 panel.

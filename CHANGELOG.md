@@ -10,8 +10,9 @@ and the commits for the exact changes.
   Ubuntu 26.04 (NVIDIA, proprietary driver) and the Steam Deck (AMD Van Gogh, Mesa RADV).
 - `scripts/launch_env.py` — one source for the graphics options, patch selection and
   `GOW3_DMEM_MB`/`GOW3_VBLANK_HZ`, shared by `run.py` (Windows) and `run.sh` (Linux).
-- `packaging/deck.sh` — a self-contained Linux/Steam Deck package (bundled libraries, `RPATH`,
-  no system install) plus `packaging/deck-gow3.ini` (800p 16:10 + engine 60 + FSR 1 defaults).
+- `packaging/linux.sh` — a self-contained Linux/Steam Deck package (bundled libraries, `RPATH`,
+  no system install) with `start-gow3.sh` (general) and `start-gow3-deck.sh` (writes the
+  `packaging/gow3-deck.ini` preset: 720p + engine 60 + FSR 1).
 - `Resolution Patch - 800p` — 1280×800. Note the game's projection is 16:9, so this **stretches
   vertically** to fill the Steam Deck's 16:10 panel; 720p letterboxes with the correct aspect.
 - `docs/LINUX.md`; CI (build + tests + the Steam Deck package).

@@ -105,10 +105,11 @@ There is a native Linux build too — the same probe and `run.sh`, no launcher G
 Deck it runs from Desktop Mode. Full notes: [docs/LINUX.md](docs/LINUX.md).
 
 **Download and play (release)**
-1. Download `gow3-deck.tar.gz` from the releases and extract it anywhere.
+1. Download `gow3-linux-x86_64.tar.gz` from the releases and extract it anywhere.
 2. Put your game folder (the one with `eboot.bin`, e.g. `CUSA01623`) inside the extracted
    folder, next to `bin/`.
-3. Run `start-gow3.sh`, or double-click `God of War III.desktop`.
+3. Run `start-gow3.sh` (any Linux), or `start-gow3-deck.sh` / double-click `God of War III.desktop`
+   on the Steam Deck.
 
 The game folder is found automatically; saves, the shader cache and `gow3.ini` go to
 `~/.local/share/gow3`. The first launch compiles shaders (a minute or two). Nothing is installed

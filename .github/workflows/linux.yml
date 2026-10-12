@@ -14,10 +14,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Release (no debug info): faster to compile, much smaller to package. ccache is capped so
+      # the Actions cache stays small.
+      GOW3_BUILD_TYPE: Release
+      CCACHE_MAXSIZE: 2G
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('src/**', 'gpu/shim/**', 'gpu/shadps4/**', 'gpu/CMakeLists.txt', 'build.sh', 'ci/environment.yml') }}
+          restore-keys: ccache-${{ runner.os }}-
 
       - name: Dependency environment
         uses: mamba-org/setup-micromamba@v2
@@ -43,18 +55,18 @@ jobs:
           python3 -m unittest discover -s tests
           bash build.sh --test
 
-      - name: Package (Steam Deck / portable)
+      - name: Package (Linux / Steam Deck)
         shell: bash -el {0}
         run: |
           source ci/env.sh
-          bash packaging/deck.sh
-          tar -czf dist/gow3-deck.tar.gz -C dist gow3-deck
+          bash packaging/linux.sh
+          tar -czf dist/gow3-linux-x86_64.tar.gz -C dist gow3-linux
 
       - name: Upload the package
         uses: actions/upload-artifact@v4
         with:
-          name: gow3-deck
-          path: dist/gow3-deck.tar.gz
+          name: gow3-linux
+          path: dist/gow3-linux-x86_64.tar.gz
           if-no-files-found: error
 
   release:
@@ -66,9 +78,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: gow3-deck
+          name: gow3-linux
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
-          files: gow3-deck.tar.gz
+          files: gow3-linux-x86_64.tar.gz
           generate_release_notes: true

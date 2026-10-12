@@ -47,8 +47,10 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
       texture_cache{instance, scheduler, runtime, liverpool_, buffer_cache, page_manager},
       liverpool{liverpool_}, memory{Core::Memory::Instance()},
       pipeline_cache{instance, scheduler, liverpool, buffer_cache.GetSparsePageShift()},
+      predication{instance, scheduler, buffer_cache},
       host_markers_enabled{EmulatorSettings.IsVkHostMarkersEnabled()},
       guest_markers_enabled{EmulatorSettings.IsVkGuestMarkersEnabled()} {
+    predication.SetCounterPairs(liverpool->CounterPairs());
     // Before the rasterizer is bound: Liverpool enqueues buffers only once it sees it.
     draw_prep = std::make_unique<DrawPreparation>(pipeline_cache);
     scene_targets = std::make_unique<SceneTargets>(instance, scheduler, runtime, texture_cache);
@@ -354,6 +356,7 @@ struct DrawPacket {
     u16 num_blocks;
     u32 num_stages;
     u32 verify;
+    DrawPredication pred;
     std::array<AmdGpu::CbDbExtent, AmdGpu::NUM_COLOR_BUFFERS> cb_extent;
     AmdGpu::CbDbExtent db_extent;
     u64 ring_end; ///< constant ring position after this packet's copies
@@ -546,8 +549,8 @@ void Rasterizer::CollectRingBindings(const Shader::Info& stage, const PreparedDr
 }
 
 void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_prepared,
-                          bool is_indexed, u32 index_offset, const AmdGpu::ComputeProgram* cs,
-                          const IndirectDraw* indirect) {
+                          bool is_indexed, u32 index_offset, const DrawPredication& pred,
+                          const AmdGpu::ComputeProgram* cs, const IndirectDraw* indirect) {
     auto& dirty = liverpool->pipe_dirty;
     if (!pipe_synced) {
         // Stage B has not run yet: its register copy starts as this one.
@@ -621,6 +624,7 @@ void Rasterizer::PostDraw(const Pipeline* pipeline, const PreparedDraw* used_pre
     packet.num_blocks = static_cast<u16>(num_blocks);
     packet.num_stages = num_stages;
     packet.verify = verify;
+    packet.pred = pred;
     packet.cb_extent = liverpool->last_cb_extent;
     packet.db_extent = liverpool->last_db_extent;
     packet.ring_end = constant_ring ? constant_ring->Position() : 0;
@@ -812,17 +816,17 @@ void Rasterizer::RunDrawPacket(void* context, const u8* data, u32 size) {
         stage_cs = cs;
         const auto* pipeline = static_cast<const ComputePipeline*>(packet.pipeline);
         if (indirect) {
-            self.DispatchIndirectRecord(pipeline, indirect->args, indirect->stride);
+            self.DispatchIndirectRecord(pipeline, indirect->args, indirect->stride, packet.pred);
         } else {
-            self.DispatchRecord(pipeline);
+            self.DispatchRecord(pipeline, packet.pred);
         }
         stage_cs = nullptr;
     } else if (indirect) {
         self.DrawIndirectRecord(static_cast<const GraphicsPipeline*>(packet.pipeline),
-                                packet.is_indexed, *indirect);
+                                packet.is_indexed, *indirect, packet.pred);
     } else {
         self.DrawRecord(static_cast<const GraphicsPipeline*>(packet.pipeline), packet.prepared,
-                        packet.is_indexed, packet.index_offset);
+                        packet.is_indexed, packet.index_offset, packet.pred);
     }
     Shader::Info::num_ud_snapshots = 0;
     self.num_ring_stages = 0;
@@ -919,7 +923,7 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
     const bool pipelined = UseDrawPipe();
     if (pipelined && !FilterDrawPasses() &&
         !Gow3Toggle::Disabled(Gow3Toggle::PipelinedMemoryWrites)) {
-        PostDraw(nullptr, nullptr, false, 0);
+        PostDraw(nullptr, nullptr, false, 0, DrawPredication{});
         return;
     }
     if (!pipelined || !FilterDrawPasses()) {
@@ -940,15 +944,16 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset, const PreparedDraw* pre
     if (!pipeline) {
         return;
     }
+    const DrawPredication pred{.predicated = liverpool->IsPacketPredicated()};
     if (pipelined && FilterDrawPasses()) {
-        PostDraw(pipeline, used_prepared, is_indexed, index_offset);
+        PostDraw(pipeline, used_prepared, is_indexed, index_offset, pred);
         return;
     }
-    DrawRecord(pipeline, used_prepared, is_indexed, index_offset);
+    DrawRecord(pipeline, used_prepared, is_indexed, index_offset, pred);
 }
 
 void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw* used_prepared,
-                            bool is_indexed, u32 index_offset) {
+                            bool is_indexed, u32 index_offset, const DrawPredication& pred) {
     if (DrawPipe::OnStageB()) {
         FrameCapture::Poll();
         scheduler.PopPendingOperations();
@@ -1107,6 +1112,8 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     }
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
+    const auto zpass_query = predication.PrepareDrawQuery();
+    const auto predicate_state = predication.CapturePredicate();
     scheduler.BeginRendering(state);
 
     const auto& vs_info = pipeline->GetStage(Shader::SwStage::Vertex);
@@ -1119,7 +1126,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const u32 num_instances = regs.num_instances.NumInstances();
     const u32 first_vertex = vertex_offset;
     const u32 first_instance = instance_offset;
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([=, this](vk::CommandBuffer cmdbuf) {
         const auto draw = [&] {
             if (is_indexed) {
                 cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex),
@@ -1129,11 +1136,13 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
             }
         };
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, handle);
+        predication.BeginDraw(cmdbuf, zpass_query, pred.predicated, predicate_state);
         draw();
         if (square) [[unlikely]] {
             cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, square);
             draw();
         }
+        predication.EndDraw(cmdbuf, zpass_query, pred.predicated, predicate_state);
     });
     if (FrameCapture::Active()) {
         const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
@@ -1179,15 +1188,16 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
         return;
     }
     const IndirectDraw indirect = {arg_address + offset, count_address, stride, max_count};
+    const DrawPredication pred{.predicated = liverpool->IsPacketPredicated()};
     if (pipelined) {
-        PostDraw(pipeline, nullptr, is_indexed, 0, nullptr, &indirect);
+        PostDraw(pipeline, nullptr, is_indexed, 0, pred, nullptr, &indirect);
         return;
     }
-    DrawIndirectRecord(pipeline, is_indexed, indirect);
+    DrawIndirectRecord(pipeline, is_indexed, indirect, pred);
 }
 
 void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_indexed,
-                                    const IndirectDraw& indirect) {
+                                    const IndirectDraw& indirect, const DrawPredication& pred) {
     if (DrawPipe::OnStageB()) {
         FrameCapture::Poll();
         scheduler.PopPendingOperations();
@@ -1243,6 +1253,8 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     }
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
+    const auto zpass_query = predication.PrepareDrawQuery();
+    const auto predicate_state = predication.CapturePredicate();
     scheduler.BeginRendering(state);
 
     ASSERT(stride == (is_indexed ? sizeof(VkDrawIndexedIndirectCommand)
@@ -1253,7 +1265,8 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const u64 args_offset = base;
     const vk::Buffer counts = count_address != 0 ? count_buffer->Handle() : vk::Buffer{};
     const u64 counts_offset = count_address != 0 ? count_offset : 0;
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([=, this](vk::CommandBuffer cmdbuf) {
+        predication.BeginDraw(cmdbuf, zpass_query, pred.predicated, predicate_state);
         for (const vk::Pipeline bound : {handle, square}) {
             if (!bound) {
                 break;
@@ -1272,6 +1285,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
                 cmdbuf.drawIndirect(args, args_offset, max_count, stride);
             }
         }
+        predication.EndDraw(cmdbuf, zpass_query, pred.predicated, predicate_state);
     });
     DebugState.IncDrawCall();
 
@@ -1291,14 +1305,15 @@ void Rasterizer::DispatchDirect() {
     if (!pipeline) {
         return;
     }
+    const DrawPredication pred{.predicated = liverpool->IsPacketPredicated()};
     if (pipelined) {
-        PostDraw(pipeline, nullptr, false, 0, &CsRegs());
+        PostDraw(pipeline, nullptr, false, 0, pred, &CsRegs());
         return;
     }
-    DispatchRecord(pipeline);
+    DispatchRecord(pipeline, pred);
 }
 
-void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
+void Rasterizer::DispatchRecord(const ComputePipeline* pipeline, const DrawPredication& pred) {
     FrameCapture::Poll();
     gbuffer_draw = false;
 
@@ -1340,9 +1355,12 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     if (FrameCapture::Active()) {
         FrameCapture::Dispatch(cs.pgm_hash, dim_x, dim_y, dim_z);
     }
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+    const auto predicate_state = predication.CapturePredicate();
+    scheduler.Record([=, this](vk::CommandBuffer cmdbuf) {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, handle);
+        predication.BeginDraw(cmdbuf, std::nullopt, pred.predicated, predicate_state);
         cmdbuf.dispatch(dim_x, dim_y, dim_z);
+        predication.EndDraw(cmdbuf, std::nullopt, pred.predicated, predicate_state);
     });
     DebugState.IncDispatch();
 
@@ -1361,16 +1379,17 @@ void Rasterizer::DispatchIndirect(VAddr address, u32 offset, u32 size) {
     if (!pipeline) {
         return;
     }
+    const DrawPredication pred{.predicated = liverpool->IsPacketPredicated()};
     if (pipelined) {
         const IndirectDraw indirect = {address + offset, 0, size, 1};
-        PostDraw(pipeline, nullptr, false, 0, &CsRegs(), &indirect);
+        PostDraw(pipeline, nullptr, false, 0, pred, &CsRegs(), &indirect);
         return;
     }
-    DispatchIndirectRecord(pipeline, address + offset, size);
+    DispatchIndirectRecord(pipeline, address + offset, size, pred);
 }
 
-void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr address,
-                                        u32 size) {
+void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr address, u32 size,
+                                        const DrawPredication& pred) {
     scheduler.PopPendingOperations();
     const u32 offset = 0;
 
@@ -1391,9 +1410,12 @@ void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr a
     const vk::Pipeline handle = pipeline->Handle();
     const vk::Buffer args = buffer->Handle();
     const u64 args_offset = base;
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+    const auto predicate_state = predication.CapturePredicate();
+    scheduler.Record([=, this](vk::CommandBuffer cmdbuf) {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, handle);
+        predication.BeginDraw(cmdbuf, std::nullopt, pred.predicated, predicate_state);
         cmdbuf.dispatchIndirect(args, args_offset);
+        predication.EndDraw(cmdbuf, std::nullopt, pred.predicated, predicate_state);
     });
     DebugState.IncDispatch();
 

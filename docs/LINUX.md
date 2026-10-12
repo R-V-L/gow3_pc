@@ -50,6 +50,12 @@ then engages and upscales back to the panel; for less, raise `engine_fps` to 120
 The in-game menu (**Insert**, or **R3+L2**) changes these (render resolution and engine FPS apply
 with "Apply and restart").
 
+**Experimental draw predication.** `GOW3_PREDICATION=1` emulates `IT_SET_PREDICATION` with
+`VK_EXT_conditional_rendering` and GPU-side ZPASS occlusion queries, so draws the game marks
+occluded are skipped on the GPU. It is off by default because its visual result has not been
+validated on hardware yet; enable it to test (on the Deck in particular) and compare frame rates
+with `GOW3_FRAME_STATS=1`. It fails open when `VK_EXT_conditional_rendering` is unavailable.
+
 ## Build from source
 
 Dependencies are local and need no root: a micromamba prefix under `.deps/` plus three small

@@ -28,6 +28,16 @@ and the commits for the exact changes.
   unimplemented (ignored), but it is now treated as pipelineable, so God of War III's per-draw
   predication setup stops forcing a queue drain (15–30k drains/s, ~60% of the GPU thread's time).
 
+### Added
+- **Real `IT_SET_PREDICATION` emulation** (opt-in, `GOW3_PREDICATION=1`; off by default). Ported
+  from shadPS4's `feat/set-predication` (a7medfayek2). Predicated draws are wrapped in
+  `VK_EXT_conditional_rendering`; the ZPASS predicate is built on the GPU timeline from per-draw
+  occlusion queries reduced by a small compute pass (no CPU wait), and the guest ZPASS counters
+  are written back asynchronously. Bool32/Bool64 predicates sample guest memory on the GPU
+  timeline. It fails open when the extension is unavailable, and the ZPASS/SetPredication packets
+  are routed through the draw pipe so the video core's command producer stays single-threaded.
+  Off by default because its visual result has not been validated on hardware yet.
+
 ### Fixed
 - **Startup crash on the NVIDIA proprietary driver** (`Vulkan::Instance::CreateDevice` →
   `vkGetPipelineKeyKHR`). The driver's `vkGetPipelineKeyKHR(device, nullptr, &key)` writes one

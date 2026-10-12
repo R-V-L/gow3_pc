@@ -112,6 +112,16 @@ public:
         return features.depthBounds;
     }
 
+    /// gow3: true when query pools can be reset from the host (vkResetQueryPool).
+    bool IsHostQueryResetSupported() const {
+        return vk12_features.hostQueryReset;
+    }
+
+    /// gow3: true when VK_EXT_conditional_rendering is enabled (IT_SET_PREDICATION).
+    bool IsConditionalRenderingSupported() const {
+        return conditional_rendering;
+    }
+
     /// Returns true if 16-bit floats are supported in shaders
     bool IsShaderFloat16Supported() const {
         return vk12_features.shaderFloat16;
@@ -575,6 +585,7 @@ private:
     bool shader_clock{};
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // gow3: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
+    bool conditional_rendering{};   // gow3: VK_EXT_conditional_rendering (IT_SET_PREDICATION)
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
     u64 total_memory_budget{};

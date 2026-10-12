@@ -43,10 +43,6 @@ with small black bars), `engine_fps=60`, `fps_limit=60`. FSR 1 and RCAS are enab
 already 1280 wide like the panel. Drop `render_resolution` to `480p` for more headroom — FSR 1
 then engages and upscales back to the panel; for less, raise `engine_fps` to 120.
 
-> **16:10 note.** There is a `Resolution Patch - 800p` (1280×800) for the panel, but the game's
-> projection is 16:9: it changes only the output size, so 16:10 **fills the panel by stretching
-> vertically** rather than rendering a true 16:10 image. Use 720p (correct aspect, letterboxed)
-> unless you prefer filling over aspect.
 The in-game menu (**Insert**, or **R3+L2**) changes these (render resolution and engine FPS apply
 with "Apply and restart").
 
@@ -170,5 +166,4 @@ this Windows-focused fork. What was needed to make it build **and behave** corre
 
 5. **Deck preset.** `packaging/gow3-deck.ini` (used by `start-gow3-deck.sh`): 720p render + engine
    60 + FSR 1 (the stock defaults — 1080p render and the 120 FPS engine patch — are too heavy for
-   Van Gogh). A `Resolution Patch - 800p` exists too, but the game's 16:9 projection makes it
-   stretch to fill the 16:10 panel.
+   Van Gogh).

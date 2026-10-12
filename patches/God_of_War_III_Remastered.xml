@@ -45,19 +45,6 @@
             <Line Type="bytes" Address="0x007cd918" Value="00000090"/>
         </PatchList>
     </Metadata>
-    <Metadata Title="God of War III Remastered" Name="Resolution Patch - 800p" Note="Sets the game output resolution to 1280x800 (16:10, the Steam Deck panel) and increases Video Arena to 2.25 GiB. Requires setting DMEM to 2048 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix." Author="kvicken + cuesta4 (1280x800 adapted for the Steam Deck)" PatchVer="1.1" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
-        <PatchList>
-            <Line Type="bytes" Address="0x005f0b3b" Value="00050000"/>
-            <Line Type="bytes" Address="0x005f0b43" Value="20030000"/>
-            <Line Type="bytes" Address="0x005f0b4c" Value="0005"/>
-            <Line Type="bytes" Address="0x005f0b53" Value="2003"/>
-            <Line Type="bytes" Address="0x005643f3" Value="20030000"/>
-            <Line Type="bytes" Address="0x00564400" Value="00050000"/>
-            <Line Type="bytes" Address="0x005ff769" Value="00050000"/>
-            <Line Type="bytes" Address="0x005ff76f" Value="20030000"/>
-            <Line Type="bytes" Address="0x007cd918" Value="00000090"/>
-        </PatchList>
-    </Metadata>
     <Metadata Title="God of War III Remastered" Name="Resolution Patch - 1440p" Note="Increases game output resolution to 2560x1440 and Video Arena to 2.75 GiB. Requires setting DMEM to 3072 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix." Author="kvicken + cuesta4" PatchVer="1.1" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
         <PatchList>
             <Line Type="bytes" Address="0x005f0b3b" Value="000a0000"/>

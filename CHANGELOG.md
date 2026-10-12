@@ -13,8 +13,6 @@ and the commits for the exact changes.
 - `packaging/linux.sh` — a self-contained Linux/Steam Deck package (bundled libraries, `RPATH`,
   no system install) with `start-gow3.sh` (general) and `start-gow3-deck.sh` (writes the
   `packaging/gow3-deck.ini` preset: 720p + engine 60 + FSR 1).
-- `Resolution Patch - 800p` — 1280×800. Note the game's projection is 16:9, so this **stretches
-  vertically** to fill the Steam Deck's 16:10 panel; 720p letterboxes with the correct aspect.
 - `docs/LINUX.md`; CI (build + tests + the Steam Deck package).
 
 ### Performance

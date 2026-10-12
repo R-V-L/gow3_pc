@@ -18,6 +18,14 @@ and the commits for the exact changes.
 - `docs/LINUX.md`; CI (build + tests + the Steam Deck package).
 
 ### Fixed
+- **Startup crash on the NVIDIA proprietary driver** (`Vulkan::Instance::CreateDevice` →
+  `vkGetPipelineKeyKHR`). The driver's `vkGetPipelineKeyKHR(device, nullptr, &key)` writes one
+  dword past an internal stack buffer and corrupts the caller's saved `rbx` (reproduced with
+  595.91.07). Whether that crashes depends on register allocation — the CI build happened to keep
+  `this` in `rbx` and crashed, while a local build kept it in `r12` and survived. The port now
+  skips the pipeline-binary global-key request on the NVIDIA proprietary driver and falls back to
+  normal compilation; set `GOW3_PIPELINE_BINARY_GLOBAL_KEY=1` to force it (Mesa/AMD keeps the
+  disk cache).
 - **Frame limit hung the game.** With `fps_limit` set to anything but `0`, the game black-screened
   at startup (GPU idle, guest polling, no crash). The present thread's sub-vblank flip path
   (`immediate_flips`) is now used only when the limit **exceeds** the vblank rate; at or below it

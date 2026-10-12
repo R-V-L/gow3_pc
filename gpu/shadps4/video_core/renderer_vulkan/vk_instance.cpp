@@ -8,6 +8,7 @@
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/types.h"
+#include "core/emulator_settings.h"
 #include "imgui/renderer/imgui_core.h"
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
@@ -651,8 +652,16 @@ bool Instance::CreateDevice() {
         const bool callable = dispatch.vkGetPipelineKeyKHR && dispatch.vkCreatePipelineBinariesKHR &&
             dispatch.vkGetPipelineBinaryDataKHR && dispatch.vkDestroyPipelineBinaryKHR &&
             dispatch.vkReleaseCapturedPipelineDataKHR;
-        if (!callable || device->getPipelineKeyKHR(nullptr, &pipeline_binary_global_key) !=
-                             vk::Result::eSuccess ||
+        // gow3: NVIDIA's vkGetPipelineKeyKHR(device, nullptr, &key) writes one dword past an
+        // internal stack buffer and corrupts the caller's saved rbx (reproduced with 595.91.07);
+        // whether that crashes depends on register allocation, so don't request the global key on
+        // that driver. A zero key disables the whole pipeline-binary cache, which also skips the
+        // per-pipeline driver calls (CreateCachedGraphicsPipeline gates on the global key).
+        const bool global_key_safe = EmulatorSettingsImpl::Flag(
+            "GOW3_PIPELINE_BINARY_GLOBAL_KEY", driver_id != vk::DriverId::eNvidiaProprietary);
+        if (!callable || !global_key_safe ||
+            device->getPipelineKeyKHR(nullptr, &pipeline_binary_global_key) !=
+                vk::Result::eSuccess ||
             !pipeline_binary_global_key.keySize ||
             pipeline_binary_global_key.keySize > VK_MAX_PIPELINE_BINARY_KEY_SIZE_KHR) {
             pipeline_binary_global_key.keySize = 0;

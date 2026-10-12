@@ -17,6 +17,17 @@ and the commits for the exact changes.
   vertically** to fill the Steam Deck's 16:10 panel; 720p letterboxes with the correct aspect.
 - `docs/LINUX.md`; CI (build + tests + the Steam Deck package).
 
+### Performance
+- **Faster draw recording (stream buffers)** — backported from PR #1 by @Vansh-Bhardwaj. The
+  small per-draw stream buffers now live in cached host memory (`VMA_MEMORY_USAGE_AUTO_PREFER_HOST`)
+  instead of device-local VRAM written through the PCIe BAR, which dominated the Vulkan recording
+  thread on NVIDIA (the PR measured 34.6 → 128.6 FPS median on a laptop NVIDIA GPU). The default
+  follows the GPU vendor — `cached` on NVIDIA, `device` (the old placement, safe for AMD UMA /
+  Smart Access Memory) on everything else — and `GOW3_STREAM_MEMORY=device|host|cached` overrides.
+- **`IT_SET_PREDICATION` no longer drains the pipeline** — also from PR #1. The opcode is still
+  unimplemented (ignored), but it is now treated as pipelineable, so God of War III's per-draw
+  predication setup stops forcing a queue drain (15–30k drains/s, ~60% of the GPU thread's time).
+
 ### Fixed
 - **Startup crash on the NVIDIA proprietary driver** (`Vulkan::Instance::CreateDevice` →
   `vkGetPipelineKeyKHR`). The driver's `vkGetPipelineKeyKHR(device, nullptr, &key)` writes one

@@ -8,6 +8,12 @@
 
 u32 Gow3DisplayRefreshHz(); // gow3gpu.cpp: primary display refresh rate, 60 when unknown
 
+// gow3gpu.cpp: PCI vendor ID of the active Vulkan device, recorded once at device creation so
+// code without an Instance (e.g. buffer memory placement) can make vendor-dependent choices.
+// 0 until SetGow3GpuVendorId() has run.
+u32 Gow3GpuVendorId();
+void SetGow3GpuVendorId(u32 id);
+
 enum GpuReadbacksMode : int { Disabled, Relaxed, Precise };
 
 class EmulatorSettingsImpl {

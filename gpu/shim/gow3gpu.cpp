@@ -25,6 +25,7 @@
 #include "common/elf_info.h"
 #include "common/logging/log.h"
 #include "common/rdtsc.h"
+#include "core/emulator_settings.h"
 #include "core/libraries/kernel/orbis_error.h"
 #include "core/libraries/libs.h"
 #include "core/memory.h"
@@ -187,6 +188,19 @@ u32 Gow3DisplayRefreshHz() {
         return std::max<u32>(rate, 60);
     }();
     return hz;
+}
+
+// gow3: set from Instance::CollectDeviceParameters() and read by the buffer cache (buffer.cpp).
+namespace {
+std::atomic<u32> g_gpu_vendor_id{0};
+} // namespace
+
+void SetGow3GpuVendorId(u32 id) {
+    g_gpu_vendor_id.store(id, std::memory_order_relaxed);
+}
+
+u32 Gow3GpuVendorId() {
+    return g_gpu_vendor_id.load(std::memory_order_relaxed);
 }
 
 #ifdef GOW3_PGO_GENERATE

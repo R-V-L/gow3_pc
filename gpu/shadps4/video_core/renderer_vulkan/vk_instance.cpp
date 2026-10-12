@@ -743,6 +743,8 @@ void Instance::CollectDeviceParameters() {
 
     driver_id = driver.driverID;
     vendor_name = driver.driverName.data();
+    // gow3: publish the vendor so code without an Instance (buffer memory placement) can use it.
+    SetGow3GpuVendorId(properties.vendorID);
 
     const std::string model_name{GetModelName()};
     const std::string driver_version = GetDriverVersionName();

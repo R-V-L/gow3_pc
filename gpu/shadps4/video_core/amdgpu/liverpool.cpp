@@ -233,6 +233,9 @@ bool PipelinedOpcode(PM4ItOpcode opcode) {
     case PM4ItOpcode::DispatchIndirect:
     case PM4ItOpcode::WriteData:     // run in order on the recording thread (RunInOrder)
     case PM4ItOpcode::DmaData:
+    case PM4ItOpcode::SetPredication: // not implemented (ignored): nothing to wait for. God of
+                                      // War III sets it around most draws; draining for it was
+                                      // ~60% of the GPU thread's time (15-30k drains/s).
         return true;
     default:
         return false;

@@ -1,10 +1,14 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
 #include <numeric>
+#include <string_view>
 
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "common/logging/log.h"
+#include "core/emulator_settings.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
@@ -31,12 +35,50 @@ std::string_view BufferTypeName(MemoryType type) {
     }
 }
 
+/// gow3: where the stream buffer lives (GOW3_STREAM_MEMORY). Every draw copies its small
+/// read-only buffers from guest memory into it on the Vulkan recording thread. "device"
+/// (shadPS4's choice) is VRAM written through the PCIe BAR: cheap with AMD Smart Access Memory
+/// on a desktop, but on a laptop NVIDIA GPU these writes took half of that thread's time and
+/// limited the frame rate. "cached" is cached system memory the GPU reads over PCIe instead;
+/// "host" is uncached system memory. The default follows the vendor: NVIDIA benefits from
+/// "cached", AMD keeps "device" (UMA / discrete SAM) unless overridden.
+enum class StreamPlacement { Device, Host, Cached };
+static StreamPlacement StreamMemory() {
+    static const StreamPlacement placement = [] {
+        const char* env = std::getenv("GOW3_STREAM_MEMORY");
+        StreamPlacement placement;
+        if (env) {
+            const std::string_view value = env;
+            placement = value == "device"  ? StreamPlacement::Device
+                        : value == "host"  ? StreamPlacement::Host
+                                           : StreamPlacement::Cached;
+        } else {
+            // PCI vendor ID 0x10DE is NVIDIA; everything else keeps shadPS4's device placement.
+            placement =
+                Gow3GpuVendorId() == 0x10DE ? StreamPlacement::Cached : StreamPlacement::Device;
+        }
+        LOG_INFO(Render_Vulkan, "Stream buffers: {} memory{}",
+                 placement == StreamPlacement::Device    ? "device-local"
+                 : placement == StreamPlacement::Cached  ? "cached host"
+                                                         : "uncached host",
+                 env ? " (GOW3_STREAM_MEMORY)" : " (vendor default)");
+        return placement;
+    }();
+    return placement;
+}
+
 [[nodiscard]] VkMemoryPropertyFlags MemoryUsagePreferredVmaFlags(MemoryType type) {
+    if (type == MemoryType::Stream && StreamMemory() == StreamPlacement::Cached) {
+        return VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    }
     return type != MemoryType::DeviceLocal ? VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
                                            : VkMemoryPropertyFlagBits{};
 }
 
 [[nodiscard]] VmaAllocationCreateFlags MemoryUsageVmaFlags(MemoryType type) {
+    if (type == MemoryType::Stream && StreamMemory() == StreamPlacement::Cached) {
+        return VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    }
     switch (type) {
     case MemoryType::HostUncached:
     case MemoryType::Stream:
@@ -51,6 +93,9 @@ std::string_view BufferTypeName(MemoryType type) {
 }
 
 [[nodiscard]] VmaMemoryUsage MemoryUsageVma(MemoryType type) {
+    if (type == MemoryType::Stream && StreamMemory() != StreamPlacement::Device) {
+        return VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    }
     switch (type) {
     case MemoryType::DeviceLocal:
     case MemoryType::Stream:

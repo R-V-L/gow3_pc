@@ -20,7 +20,7 @@ if [[ -n $march ]]; then common+=(-march="$march"); fi
 test_common=(-O0 -g -mtune="$tune" -ffunction-sections -fdata-sections
              -fno-semantic-interposition -fno-plt)
 if [[ -n $march ]]; then test_common+=(-march="$march"); fi
-link=(-Wl,--gc-sections -Wl,-O1)
+link=(-Wl,--gc-sections -Wl,-O1 -lm)
 case $(uname -s) in
 MINGW*|MSYS*) ;;
 *) link+=(-Wl,-Bsymbolic-functions) ;;
@@ -122,10 +122,6 @@ if [[ ! -f out/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer out/l
 fi
 # isa_emulate runs inside guest code: no XMM/YMM.
 "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -mgeneral-regs-only -c src/isa_emulate.c -o out/isa_emulate.o
-"$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/spartanport-probe
-echo "Built $PWD/out/spartanport-probe"
-# GPU check for run.sh (live_resolution=auto): links only the Vulkan loader.
-"$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -Igpu/shadps4 tools/gpu_capabilities.c "${libraries[@]}" "${link[@]}" -o out/spartanport-gpu-capabilities
 if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" "${link[@]}" -o out/pad-test
     out/pad-test
@@ -153,3 +149,7 @@ if [[ ${1:-} == --test ]]; then
     ninja -C out/gpu graphics-settings-test
     out/gpu/graphics-settings-test
 fi
+"$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/spartanport-probe
+echo "Built $PWD/out/spartanport-probe"
+# GPU check for run.sh (live_resolution=auto): links only the Vulkan loader.
+"$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -Igpu/shadps4 tools/gpu_capabilities.c "${libraries[@]}" "${link[@]}" -o out/spartanport-gpu-capabilities

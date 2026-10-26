@@ -11,6 +11,24 @@ uintptr_t runtime_lookup(const RuntimeExport *table,size_t n,const char *name) {
     for (size_t i=0;i<n;++i) if (!strcmp(table[i].name,name)) return (uintptr_t)table[i].function;
     return 0;
 }
+/* The rest of the GPU library's runtime hooks, which this file-mod test never calls. */
+uint64_t runtime_tsc_frequency(void) { return 1000000000; }
+uint64_t runtime_process_time_us(void) { return 0; }
+uint64_t runtime_process_time_counter(void) { return 0; }
+uint64_t runtime_read_tsc(void) { return 0; }
+uint64_t runtime_memory_clamp(uintptr_t at,uint64_t size) { (void)at; (void)size; return 0; }
+int runtime_memory_region(uintptr_t at,uintptr_t *base,uintptr_t *size,int *flags) {
+    (void)at; (void)base; (void)size; (void)flags; return -1;
+}
+void runtime_memory_set_gpu_hooks(void (*a)(uintptr_t,uint64_t),void (*b)(uintptr_t,uint64_t),
+                                  void (*c)(uintptr_t,uint64_t)) { (void)a; (void)b; (void)c; }
+void runtime_thread_attach_host(const char *name) { (void)name; }
+void runtime_memory_gpu_protect(uintptr_t at,uint64_t size,int a,int b) { (void)at; (void)size; (void)a; (void)b; }
+void runtime_restart(void) {}
+int runtime_memory_write_backing(uintptr_t at,const void *data,uint64_t size) {
+    (void)at; (void)data; (void)size; return 0;
+}
+void runtime_report(void) {}
 int main(void) {
     char root[]="/tmp/spartanport-mod-files-XXXXXX";
     assert(mkdtemp(root));

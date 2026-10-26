@@ -270,6 +270,8 @@ pub enum Message {
     /// The Aspect ratio box of the Performance page.
     Aspect(String),
     Browse(String),
+    /// The Image… button: a .zar game image for the game folder.
+    BrowseImage,
     /// The folder of a folder setting: the dialog's answer, or the path typed into its field.
     Browsed(String, Option<PathBuf>),
     /// A game patch check box of the Game page.
@@ -459,6 +461,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         Message::Browse(key) => return browse(state, key),
+        Message::BrowseImage => return browse_image(state),
         // A folder chosen in the dialog or typed into its field is read at once. Choosing the
         // folder already chosen reads it again (ruling R49): that is how the player has a dump
         // copied into it meanwhile read, as the Python's variable trace fires on any write.
@@ -573,6 +576,31 @@ fn browse(state: &State, key: String) -> Task<Message> {
         .pick_folder();
     Task::perform(dialog, move |handle| {
         Message::Browsed(key.clone(), handle.map(|h| h.path().to_path_buf()))
+    })
+}
+
+/// Opens the file dialog for a .zar game image; the answer sets `game_dir`, as a folder would.
+fn browse_image(state: &State) -> Task<Message> {
+    let current = PathBuf::from(state.store.text("game_dir"));
+    let start = if current.is_dir() {
+        current
+    } else {
+        current
+            .parent()
+            .filter(|parent| parent.is_dir())
+            .map(|parent| parent.to_path_buf())
+            .unwrap_or_else(|| state.paths.port_dir.clone())
+    };
+    let dialog = rfd::AsyncFileDialog::new()
+        .set_title(tr(&state.lang, "Choose a ZArchive game image (.zar)"))
+        .set_directory(start)
+        .add_filter("ZArchive", &["zar"])
+        .pick_file();
+    Task::perform(dialog, |handle| {
+        Message::Browsed(
+            "game_dir".to_string(),
+            handle.map(|h| h.path().to_path_buf()),
+        )
     })
 }
 

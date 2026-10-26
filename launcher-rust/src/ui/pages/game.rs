@@ -338,9 +338,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
             "game_dir",
             &tr(lang, "Game folder"),
             &hint(
-                "Your own dump of the game (eboot.bin, sce_module, sce_sys): SpartanPort, any region and version."
+                "Your own dump of the game (eboot.bin, sce_module, sce_sys) or a packed .zar image: SpartanPort, any region and version."
             ),
         ),
+        button(text(tr(lang, "Image…")))
+            .style(theme::button_flat)
+            .on_press(Message::BrowseImage),
         folder_row(
             state,
             "update_dir",

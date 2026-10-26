@@ -51,6 +51,15 @@ fn or_here<'a>(folder: &'a str, here: &'a Path) -> &'a Path {
     }
 }
 
+/// Whether a game choice is a packed ZArchive image (a folder holding one is not: pick the file).
+pub fn is_archive(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zar"))
+}
+
 impl Installation {
     pub fn read(game_dir: &str, update_dir: &str) -> Self {
         Self::read_from(game_dir, update_dir, Path::new("."))
@@ -67,8 +76,14 @@ impl Installation {
             game_path.to_path_buf()
         };
         let meta = GameFolder::read(&meta_path);
+        let archive = is_archive(game_path);
         let verdict = Verdict {
-            game_missing: missing_game_files(game_path, REQUIRED_GAME_FILES),
+            // A .zar holds the game files; the runner extracts what its preparation scripts read.
+            game_missing: if archive {
+                Vec::new()
+            } else {
+                missing_game_files(game_path, REQUIRED_GAME_FILES)
+            },
             same_folder: !update_dir.is_empty() && same_folder(update_dir, game_path),
             update_missing: if update_dir.is_empty() {
                 Vec::new()
@@ -83,7 +98,7 @@ impl Installation {
             info: meta.info(),
             meta,
             meta_path,
-            has_game: game_path.join("eboot.bin").is_file(),
+            has_game: archive || game_path.join("eboot.bin").is_file(),
             verdict,
         }
     }
@@ -129,6 +144,11 @@ impl Installation {
     /// Whether the game folder holds an `eboot.bin`.
     pub fn has_game(&self) -> bool {
         self.has_game
+    }
+
+    /// Whether the game choice is a .zar image rather than a folder.
+    pub fn is_archive(&self) -> bool {
+        is_archive(&self.game_path)
     }
 
     pub fn verdict(&self) -> &Verdict {

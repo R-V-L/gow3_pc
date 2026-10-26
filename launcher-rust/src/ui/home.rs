@@ -494,6 +494,7 @@ pub fn chips(state: &State) -> [String; 3] {
             let id = state.installation.title_id().unwrap_or(&info.title);
             format!("✓ {id} · v{}", info.version)
         }
+        None if state.installation.is_archive() => tr(lang, "✓ Game image (.zar)"),
         None => tr(lang, "✗ No eboot.bin in the game folder"),
     };
     // Only whether saves exist: the folder is on the Game page.

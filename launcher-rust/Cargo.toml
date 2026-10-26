@@ -91,8 +91,12 @@ iced_test = "0.14"
 debug = "line-tables-only"
 
 [profile.release]
-# Smaller binary: the launcher keeps no symbols at run time. No performance cost.
+# A menu, not the game: favor size, then a single codegen unit for LTO.
 strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+opt-level = "z"
 
 [profile.dev.package.tiny-skia]
 opt-level = 3

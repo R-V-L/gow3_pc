@@ -94,6 +94,10 @@ if [[ -z $tool ]]; then
 fi
 mkdir -p dist
 # Written aside and moved over: replacing a running AppImage in place fails ("Text file busy").
-ARCH=x86_64 "$tool" --appimage-extract-and-run "$appdir" dist/spartanport-x86_64.AppImage.new
+# zstd 19 and a 1 MiB block: the payload is already stripped, so the squashfs is the remaining size.
+ARCH=x86_64 "$tool" --appimage-extract-and-run --comp zstd \
+    --mksquashfs-opt -Xcompression-level --mksquashfs-opt 19 \
+    --mksquashfs-opt -b --mksquashfs-opt 1M \
+    "$appdir" dist/spartanport-x86_64.AppImage.new
 mv -f dist/spartanport-x86_64.AppImage.new dist/spartanport-x86_64.AppImage
 ls -lh dist/spartanport-x86_64.AppImage

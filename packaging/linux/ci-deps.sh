@@ -5,6 +5,11 @@
 # What 24.04 lacks or ships too old is built into /usr/local: Vulkan-Headers, VMA, SDL3.
 set -euo pipefail
 sudo=$([[ $(id -u) == 0 ]] || echo sudo)
+# Where the source-built headers and SDL3 go: /usr/local normally, a user-writable prefix in CI
+# (so actions/cache can store it; the workflow exports CMAKE_PREFIX_PATH/PKG_CONFIG_PATH/...).
+prefix=${SPARTAN_DEPS_PREFIX:-/usr/local}
+install_sudo=$([[ $prefix == /usr/local ]] && echo "$sudo")
+mkdir -p "$prefix"
 export DEBIAN_FRONTEND=noninteractive
 $sudo apt-get update
 $sudo apt-get install -y --no-install-recommends \
@@ -25,24 +30,25 @@ trap 'rm -rf "$work"' EXIT
 # skip each build when its files are already there.
 # Vulkan-Headers (and Vulkan-Hpp): 24.04 has 1.3.275, the renderer needs 1.4 types.
 VULKAN_HEADERS=${VULKAN_HEADERS:-vulkan-sdk-1.4.357.0}
-if [[ ! -f /usr/local/include/vulkan/vulkan.h ]]; then
+if [[ ! -f $prefix/include/vulkan/vulkan.h ]]; then
     git clone -q --depth 1 -b "$VULKAN_HEADERS" https://github.com/KhronosGroup/Vulkan-Headers "$work/vulkan-headers"
-    cmake -S "$work/vulkan-headers" -B "$work/vulkan-headers/build" -G Ninja -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null
-    $sudo cmake --install "$work/vulkan-headers/build" >/dev/null
+    cmake -S "$work/vulkan-headers" -B "$work/vulkan-headers/build" -G Ninja -DCMAKE_INSTALL_PREFIX="$prefix" >/dev/null
+    $install_sudo cmake --install "$work/vulkan-headers/build" >/dev/null
 fi
 # Vulkan Memory Allocator: header only, not packaged in 24.04.
 VMA=${VMA:-v3.1.0}
-if [[ ! -f /usr/local/include/vk_mem_alloc.h ]]; then
-    $sudo curl -fsSL -o /usr/local/include/vk_mem_alloc.h \
+if [[ ! -f $prefix/include/vk_mem_alloc.h ]]; then
+    mkdir -p "$prefix/include"
+    $install_sudo curl -fsSL -o "$prefix/include/vk_mem_alloc.h" \
         "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/$VMA/include/vk_mem_alloc.h"
 fi
 # SDL3: not packaged in 24.04.
 SDL=${SDL:-3.4.16}
-if [[ ! -f /usr/local/lib/libSDL3.so ]]; then
+if [[ ! -f $prefix/lib/libSDL3.so ]]; then
     curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz" | tar xz -C "$work"
-    cmake -S "$work/SDL3-$SDL" -B "$work/sdl" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
-        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >/dev/null
+    cmake -S "$work/SDL3-$SDL" -B "$work/sdl" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_STATIC=OFF >/dev/null
     ninja -C "$work/sdl" >/dev/null
-    $sudo ninja -C "$work/sdl" install >/dev/null
+    $install_sudo ninja -C "$work/sdl" install >/dev/null
 fi
-$sudo ldconfig
+if [[ $prefix == /usr/local ]]; then $sudo ldconfig; fi

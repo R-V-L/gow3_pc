@@ -30,10 +30,21 @@ jobs:
     timeout-minutes: 150
     env:
       CCACHE_MAXSIZE: 2G
+      SPARTAN_DEPS_PREFIX: ${{ github.workspace }}/.ci-prefix
+      CMAKE_PREFIX_PATH: ${{ github.workspace }}/.ci-prefix
+      PKG_CONFIG_PATH: ${{ github.workspace }}/.ci-prefix/lib/pkgconfig
+      CPATH: ${{ github.workspace }}/.ci-prefix/include
+      LIBRARY_PATH: ${{ github.workspace }}/.ci-prefix/lib
+      LD_LIBRARY_PATH: ${{ github.workspace }}/.ci-prefix/lib
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ci-prefix
+          key: deps-${{ runner.os }}-${{ hashFiles('packaging/linux/ci-deps.sh') }}
       - name: Dependencies
         run: bash packaging/linux/ci-deps.sh
       - name: ccache

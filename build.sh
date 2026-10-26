@@ -20,7 +20,6 @@ case $(uname -s) in
 MINGW*|MSYS*) ;;
 *) link+=(-Wl,-Bsymbolic-functions) ;;
 esac
-if command -v ld.lld >/dev/null 2>&1; then link+=(-fuse-ld=lld); fi
 # Windows: MSYS2 CLANG64 (packages in packaging/windows/README.md). The GPU library is static
 # there and CMake links spartanport-probe.exe as well; no PGO (GCC-only flags), LTO off by default.
 case $(uname -s) in

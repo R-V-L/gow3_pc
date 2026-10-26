@@ -129,6 +129,42 @@ int runtime_savedata_icon(int32_t user, const char *dir, char *out, size_t size)
     snprintf(out,size,"%s/%s.sce_sys/icon0.png",base,dir);
     return 0;
 }
+/* Newest modification time (seconds) of a save: its files and its param.bin; 0 when absent. */
+static int64_t newest(const char *path, int depth) {
+    struct stat st;
+#ifndef _WIN32
+    if (lstat(path,&st)) return 0;
+    if (S_ISLNK(st.st_mode)) return 0; /* do not follow symlinks outside save */
+#else
+    if (stat(path,&st)) return 0;
+#endif
+    if (!S_ISDIR(st.st_mode)) return (int64_t)(st.st_mtime>0 ? st.st_mtime : 0);
+    if (depth>4) return 0;
+    int64_t t=0;
+    DIR *d=opendir(path);
+    for (struct dirent *e; d && (e=readdir(d));) {
+        if (!strcmp(e->d_name,".") || !strcmp(e->d_name,"..")) continue;
+        char child[1024];
+        if (snprintf(child,sizeof(child),"%s/%s",path,e->d_name)>=(int)sizeof(child)) continue;
+        int64_t c=newest(child,depth+1);
+        if (c>t) t=c;
+    }
+    if (d) closedir(d);
+    return t;
+}
+/* When a save was last written (the load list's focus, the menu's last autosave); 0 when absent. */
+int64_t runtime_savedata_mtime(int32_t user, const char *dir) {
+    if (!valid_name(dir,32)) return 0;
+    char base[600], path[700];
+    root(user,NULL,base,sizeof(base));
+    snprintf(path,sizeof(path),"%s/%s",base,dir);
+    struct stat st;
+    if (stat(path,&st) || !S_ISDIR(st.st_mode)) return 0;
+    int64_t t=newest(path,0);
+    snprintf(path,sizeof(path),"%s/%s.sce_sys/param.bin",base,dir);
+    if (!stat(path,&st) && (int64_t)st.st_mtime>t) t=(int64_t)st.st_mtime;
+    return t>0 ? t : 0;
+}
 static ABI int32_t save_initialize(const void *param) { (void)param; initialized=1; return 0; }
 static ABI int32_t save_terminate(void) {
     if (!initialized) return ERR_NOT_INITIALIZED;
@@ -220,7 +256,8 @@ static ABI int32_t save_icon(const MountPoint *point, const Icon *icon) {
     int slot=slot_of(point);
     int32_t r=ERR_NOT_MOUNTED;
     if (slot>=0) {
-        char path[700]; snprintf(path,sizeof(path),"%s/icon0.png",slots[slot].meta);
+        char path[sizeof(slots[slot].meta)+sizeof("/icon0.png")];
+        snprintf(path,sizeof(path),"%s/icon0.png",slots[slot].meta);
         FILE *f=fopen(path,"wb");
         r=f && fwrite(icon->buffer,1,icon->data_size,f)==icon->data_size ? 0 : ERR_INTERNAL;
         if (f) fclose(f);
@@ -269,8 +306,9 @@ static ABI int32_t save_search(const SearchCond *cond, SearchResult *result) {
         if (e->d_name[0]=='.' || n>=32 || (n>8 && !strcmp(e->d_name+n-8,".sce_sys"))) continue;
         if (cond->dir && cond->dir->data[0] && !like(e->d_name,cond->dir->data)) continue;
         if (count==capacity) { capacity=capacity ? capacity*2 : 16; entries=realloc(entries,capacity*sizeof(*entries)); }
-        snprintf(entries[count].name,32,"%s",e->d_name);
-        char meta[680]; snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,e->d_name);
+        memcpy(entries[count].name,e->d_name,n+1); /* n<32: the check above */
+        char meta[sizeof(base)+sizeof(e->d_name)+8];
+        snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,e->d_name);
         read_param(meta,&entries[count].param);
         ++count;
     }

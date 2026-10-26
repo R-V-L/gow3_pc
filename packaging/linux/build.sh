@@ -41,7 +41,7 @@ install -m644 "$icon" "$appdir/spartanport.png"
 if [[ -f release.json ]]; then install -m644 release.json "$appdir/release.json"; fi
 
 # Host-provided libraries: bundling any of these breaks drivers or the display connection.
-excluded='^(ld-linux.*|libc|libm|libdl|librt|libpthread|libresolv|libutil|libnsl|libanl|libvulkan|libGL|libGLX|libGLdispatch|libEGL|libOpenGL|libgbm|libdrm.*|libX11|libX11-xcb|libxcb.*|libXau|libXdmcp|libXext|libXfixes|libXrender|libXi|libXcursor|libXrandr|libwayland-.*|libasound|libudev|libpulse.*|libfontconfig|libfreetype|libOpenCL|libva.*|libvdpau|libvpl|libnvidia-.*|libcuda|libz|libstdc\+\+|libgcc_s)\.so'
+excluded='^(ld-linux.*|libc|libm|libdl|librt|libpthread|libresolv|libutil|libnsl|libanl|libvulkan|libGL|libGLX|libGLdispatch|libEGL|libOpenGL|libgbm|libdrm.*|libX11|libX11-xcb|libxcb.*|libXau|libXdmcp|libXext|libXfixes|libXrender|libXi|libXcursor|libXrandr|libwayland-.*|libasound|libudev|libpulse.*|libfontconfig|libfreetype|libOpenCL|libva.*|libvdpau|libvpl|libnvidia-.*|libcuda|libspartanportgpu|libz|libstdc\+\+|libgcc_s)\.so'
 declare -A seen
 bundle() {
     local elf=$1 line lib name
@@ -66,6 +66,10 @@ for name in libstdc++.so.6 libgcc_s.so.1; do
 done
 # $ORIGIN/gpu is already the probe's RUNPATH; the libraries it needs sit in usr/lib via AppRun.
 find "$appdir/usr/lib" -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true
+# The probe, the GPU library and the launcher are loaded from the payload (not usr/lib): their
+# debug symbols are not needed at run time. The GPU library is the largest file in the image.
+strip --strip-unneeded "$share/bin/spartanport-probe" "$share/bin/gpu/libspartanportgpu.so" \
+    "$share/spartanport-launcher" 2>/dev/null || true
 
 # The newest glibc symbol in the bundle is the oldest glibc players can have. Built on a rolling
 # distro it follows the host's and the AppImage stops starting on SteamOS, Debian and Fedora (#291):

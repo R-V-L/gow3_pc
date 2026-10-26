@@ -90,6 +90,10 @@ iced_test = "0.14"
 # Backtraces keep file and line; target/debug stays small.
 debug = "line-tables-only"
 
+[profile.release]
+# Smaller binary: the launcher keeps no symbols at run time. No performance cost.
+strip = true
+
 [profile.dev.package.tiny-skia]
 opt-level = 3
 [profile.dev.package.tiny-skia-path]

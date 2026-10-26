@@ -61,21 +61,29 @@ static SDL_DisplayID MonitorDisplay() {
     return chosen;
 }
 
-// spartanport: a window opens at the render resolution chosen in the launcher (or the in-game menu), fitted
-// to the chosen display's usable area (with room for the title bar); one too large opens maximized,
-// restoring to that size shrunk to fit. The picture is scaled to the window either way. True when shrunk.
+// spartanport: the window opens at the output resolution chosen in the launcher, fitted to the
+// chosen display's usable area (with room for the title bar); one too large opens maximized,
+// restoring to that size shrunk to fit. The render resolution is independent (the game's image is
+// scaled to the window). SDL's usable bounds and window sizes are logical pixels: divide the
+// physical output size by the display content scale so a 4K window on a 200% desktop keeps a 4K
+// swapchain instead of a 1080p one. True when shrunk.
 static bool StartSize(s32& width, s32& height, SDL_DisplayID display) {
     constexpr int title_room = 48;
-    const std::vector<std::string> names = SpartanGraphics::ResolutionNames();
-    const int index = std::clamp(SpartanSettings::Get().render_resolution.load(), 0, int(names.size()) - 1);
-    const auto [w, h] = SpartanGraphics::ResolutionSize(names[index]);
+    const int output = std::clamp(SpartanSettings::Get().output_res.load(), 0,
+                                  int(std::size(SpartanSettings::OutputWidths)) - 1);
+    const int w = SpartanSettings::OutputWidths[output];
+    const int h = SpartanSettings::OutputHeights[output];
+    float density = SDL_GetDisplayContentScale(display);
+    if (!(density > 0.0f)) density = 1.0f;
+    const int logical_w = std::max(320, int(w / density));
+    const int logical_h = std::max(180, int(h / density));
     double scale = 1.0;
     SDL_Rect usable{};
     if (SDL_GetDisplayUsableBounds(display, &usable) && usable.w > 0 && usable.h > title_room) {
-        scale = std::min({1.0, double(usable.w) / w, double(usable.h - title_room) / h});
+        scale = std::min({1.0, double(usable.w) / logical_w, double(usable.h - title_room) / logical_h});
     }
-    width = std::max(320, int(w * scale));
-    height = std::max(180, int(h * scale));
+    width = std::max(320, int(logical_w * scale));
+    height = std::max(180, int(logical_h * scale));
     return scale < 1.0;
 }
 
@@ -86,6 +94,9 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     }
     const SDL_DisplayID display = MonitorDisplay();
     const bool too_large = StartSize(width_, height_, display);
+    // Only a scaled (high-DPI) desktop needs the high-density backbuffer: on a 100% display it
+    // would request twice the window's pixels and make the compositor downscale them again.
+    const float content_scale = SDL_GetDisplayContentScale(display);
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_CENTERED_DISPLAY(display));
@@ -94,6 +105,7 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height_);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, true);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_MAXIMIZED_BOOLEAN, too_large);
+    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, content_scale > 1.0f);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_VULKAN_BOOLEAN, true);
     base_title = title;
     window = SDL_CreateWindowWithProperties(props);
@@ -138,6 +150,8 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_GetWindowSizeInPixels(window, &w, &h);
     width = w;
     height = h;
+    std::printf("Window: %dx%d pixels (%dx%d logical, content scale %.2f)\n", w, h, width_, height_,
+                SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(window)));
     LOG_INFO(Frontend, "Window {}x{} on {}", w, h, driver);
 }
 

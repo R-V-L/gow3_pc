@@ -28,6 +28,8 @@ jobs:
   build:
     runs-on: windows-2025
     timeout-minutes: 150
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     defaults:
       run:
         shell: msys2 {0}
@@ -39,6 +41,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('gpu/shadps4/**', 'gpu/shim/**', 'src/**', 'build.sh', 'gpu/CMakeLists.txt') }}
+          restore-keys: ccache-${{ runner.os }}-
       # The runner's C:/msys64, where msys2-env.sh and package.sh look for the CLANG64 DLLs.
       - uses: msys2/setup-msys2@v2
         with:
@@ -47,14 +55,17 @@ jobs:
           update: true
           install: git patch
           pacboy: >-
-            toolchain:p cmake:p ninja:p pkgconf:p python:p
+            toolchain:p cmake:p ninja:p pkgconf:p python:p ccache:p
             vulkan-headers:p vulkan-loader:p vulkan-memory-allocator:p glslang:p
-            sdl3:p fmt:p boost:p robin-map:p xxhash:p ffmpeg:p zydis:p
+            sdl3:p fmt:p boost:p robin-map:p xxhash:p ffmpeg:p zstd:p zydis:p
             spirv-tools:p spirv-headers:p spirv-cross:p
       - name: Build
         run: bash build.sh
       # The launcher is built by cargo outside MSYS2 (package.sh needs its exe).
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher-rust -> target
       - name: Build the launcher
         shell: pwsh
         # Inside launcher-rust/: cargo reads .cargo/config.toml (static CRT) from the working directory.

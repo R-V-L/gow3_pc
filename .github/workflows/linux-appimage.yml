@@ -28,13 +28,24 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    env:
+      CCACHE_MAXSIZE: 2G
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Dependencies
         run: bash packaging/linux/ci-deps.sh
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('gpu/shadps4/**', 'gpu/shim/**', 'src/**', 'build.sh', 'gpu/CMakeLists.txt', 'packaging/linux/ci-deps.sh') }}
+          restore-keys: ccache-${{ runner.os }}-
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher-rust -> target
       - name: Build
         run: bash build.sh
       - name: Stamp

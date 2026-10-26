@@ -2,6 +2,11 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 mkdir -p out
+# ccache, when installed, caches compiler output across builds (CI).
+launcher=()
+if command -v ccache >/dev/null 2>&1; then
+    launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+fi
 # Windows: MSYS2 CLANG64 (packages in packaging/windows/README.md). The GPU library is static
 # there and CMake links spartanport-probe.exe as well; no PGO (GCC-only flags), LTO off by default.
 case $(uname -s) in
@@ -21,7 +26,8 @@ MINGW*|MSYS*)
         fi
     done
     cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSPARTAN_PGO=off \
-        -DSPARTAN_LTO="${SPARTAN_LTO:-OFF}" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ >/dev/null
+        -DSPARTAN_LTO="${SPARTAN_LTO:-OFF}" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+        "${launcher[@]}" >/dev/null
     echo "GPU library and loader: LTO ${SPARTAN_LTO:-OFF}"
     if ! ninja -C out/gpu spartanport-probe spartanport-gpu-capabilities spartanport-play > out/gpu-build.log 2>&1; then
         grep -v '^\[' out/gpu-build.log | tail -40 >&2
@@ -70,7 +76,7 @@ for patch in gpu/patches/fsr-vulkan/*.patch; do
     fi
 done
 cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSPARTAN_PGO="$pgo" \
-    -DSPARTAN_LTO="${SPARTAN_LTO:-ON}" -DSPARTAN_PGO_DIR="$PWD/pgo" >/dev/null
+    -DSPARTAN_LTO="${SPARTAN_LTO:-ON}" -DSPARTAN_PGO_DIR="$PWD/pgo" "${launcher[@]}" >/dev/null
 echo "GPU library: PGO $pgo, LTO ${SPARTAN_LTO:-ON}"
 # A failed GPU build must stop here: an older libspartanportgpu.so would otherwise be used silently.
 if ! ninja -C out/gpu spartanportgpu > out/gpu-build.log 2>&1; then

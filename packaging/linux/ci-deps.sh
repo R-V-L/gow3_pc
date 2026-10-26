@@ -8,7 +8,7 @@ sudo=$([[ $(id -u) == 0 ]] || echo sudo)
 export DEBIAN_FRONTEND=noninteractive
 $sudo apt-get update
 $sudo apt-get install -y --no-install-recommends \
-    build-essential g++-14 gcc-14 cmake ninja-build pkg-config git curl ca-certificates file patchelf binutils \
+    build-essential g++-14 gcc-14 cmake ninja-build pkg-config git curl ca-certificates file patchelf binutils ccache \
     libvulkan-dev glslang-tools libboost-dev libfmt-dev libxxhash-dev libzstd-dev libzydis-dev robin-map-dev \
     libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev \
@@ -21,20 +21,28 @@ $sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# The source-built pieces live in /usr/local and are restored from the CI cache when unchanged;
+# skip each build when its files are already there.
 # Vulkan-Headers (and Vulkan-Hpp): 24.04 has 1.3.275, the renderer needs 1.4 types.
 VULKAN_HEADERS=${VULKAN_HEADERS:-vulkan-sdk-1.4.357.0}
-git clone -q --depth 1 -b "$VULKAN_HEADERS" https://github.com/KhronosGroup/Vulkan-Headers "$work/vulkan-headers"
-cmake -S "$work/vulkan-headers" -B "$work/vulkan-headers/build" -G Ninja -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null
-$sudo cmake --install "$work/vulkan-headers/build" >/dev/null
+if [[ ! -f /usr/local/include/vulkan/vulkan.h ]]; then
+    git clone -q --depth 1 -b "$VULKAN_HEADERS" https://github.com/KhronosGroup/Vulkan-Headers "$work/vulkan-headers"
+    cmake -S "$work/vulkan-headers" -B "$work/vulkan-headers/build" -G Ninja -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null
+    $sudo cmake --install "$work/vulkan-headers/build" >/dev/null
+fi
 # Vulkan Memory Allocator: header only, not packaged in 24.04.
 VMA=${VMA:-v3.1.0}
-$sudo curl -fsSL -o /usr/local/include/vk_mem_alloc.h \
-    "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/$VMA/include/vk_mem_alloc.h"
+if [[ ! -f /usr/local/include/vk_mem_alloc.h ]]; then
+    $sudo curl -fsSL -o /usr/local/include/vk_mem_alloc.h \
+        "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/$VMA/include/vk_mem_alloc.h"
+fi
 # SDL3: not packaged in 24.04.
 SDL=${SDL:-3.4.16}
-curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz" | tar xz -C "$work"
-cmake -S "$work/SDL3-$SDL" -B "$work/sdl" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
-    -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >/dev/null
-ninja -C "$work/sdl" >/dev/null
-$sudo ninja -C "$work/sdl" install >/dev/null
+if [[ ! -f /usr/local/lib/libSDL3.so ]]; then
+    curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz" | tar xz -C "$work"
+    cmake -S "$work/SDL3-$SDL" -B "$work/sdl" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >/dev/null
+    ninja -C "$work/sdl" >/dev/null
+    $sudo ninja -C "$work/sdl" install >/dev/null
+fi
 $sudo ldconfig

@@ -1,6 +1,7 @@
 //! The Elm application: state, messages, update, view and subscriptions.
 
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +18,7 @@ use serde_json::Value;
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
-use crate::core::installation::Installation;
+use crate::core::installation::{is_archive, Installation};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::paths::Paths;
 use crate::core::platform;
@@ -272,8 +273,10 @@ pub enum Message {
     Browse(String),
     /// The Image… button: a .zar game image for the game folder.
     BrowseImage,
-    /// The folder of a folder setting: the dialog's answer, or the path typed into its field.
+    /// The folder of a folder setting: the path typed into its field.
     Browsed(String, Option<PathBuf>),
+    /// A folder or image the dialog chose; a folder holding one .zar is the image.
+    Picked(String, Option<PathBuf>),
     /// A game patch check box of the Game page.
     PatchToggled(String, bool),
     Backup(BackupMessage),
@@ -472,6 +475,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             return follow(state, Cause::Keys(&[key.as_str()]));
         }
         Message::Browsed(_, None) => {}
+        Message::Picked(key, Some(path)) => {
+            let path = game_choice(&key, path);
+            state
+                .store
+                .set(&key, Value::String(path.display().to_string()));
+            return follow(state, Cause::Keys(&[key.as_str()]));
+        }
+        Message::Picked(_, None) => {}
         Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
         Message::Backup(message) => return game::backup_update(state, message),
         Message::WindowFocused(focused) => {
@@ -564,19 +575,49 @@ pub(crate) fn refresh_installation(state: &mut State) {
     state.installation = Installation::of(&state.store);
 }
 
-/// Opens the folder dialog for the setting `key`; the answer comes back as `Browsed`.
+/// Opens the folder dialog for the setting `key`; the answer comes back as `Picked`.
 fn browse(state: &State, key: String) -> Task<Message> {
     let start = match state.store.text(&key) {
         current if current.is_empty() => state.paths.port_dir.clone(),
-        current => PathBuf::from(current),
+        current => {
+            let path = PathBuf::from(current);
+            if path.is_dir() {
+                path
+            } else {
+                path.parent()
+                    .filter(|parent| parent.is_dir())
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| state.paths.port_dir.clone())
+            }
+        }
     };
     let dialog = rfd::AsyncFileDialog::new()
         .set_title(tr(&state.lang, game::browse_prompt(&key)))
         .set_directory(start)
         .pick_folder();
     Task::perform(dialog, move |handle| {
-        Message::Browsed(key.clone(), handle.map(|h| h.path().to_path_buf()))
+        Message::Picked(key.clone(), handle.map(|h| h.path().to_path_buf()))
     })
+}
+
+/// The game a dialog chose: a folder with no `eboot.bin` but exactly one `.zar` is that image.
+/// The folder picker cannot select a file, and some file dialogs return the folder they started
+/// in; this makes both choices land on the packed image the player meant.
+fn game_choice(key: &str, path: PathBuf) -> PathBuf {
+    if key != "game_dir" || !path.is_dir() || path.join("eboot.bin").is_file() {
+        return path;
+    }
+    let Ok(entries) = fs::read_dir(&path) else {
+        return path;
+    };
+    let mut zars = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|entry| is_archive(entry));
+    match (zars.next(), zars.next()) {
+        (Some(only), None) => only,
+        _ => path,
+    }
 }
 
 /// Opens the file dialog for a .zar game image; the answer sets `game_dir`, as a folder would.
@@ -597,7 +638,7 @@ fn browse_image(state: &State) -> Task<Message> {
         .add_filter("ZArchive", &["zar"])
         .pick_file();
     Task::perform(dialog, |handle| {
-        Message::Browsed(
+        Message::Picked(
             "game_dir".to_string(),
             handle.map(|h| h.path().to_path_buf()),
         )
@@ -1030,5 +1071,53 @@ mod tests {
         let monogram = ::image::load_from_memory(&bytes).unwrap().to_rgba8();
         assert_eq!((size.width, size.height), monogram.dimensions());
         assert!(pixels == monogram.into_raw(), "another picture");
+    }
+
+    #[test]
+    fn a_folder_with_one_zar_is_the_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let zar = dir.path().join("CUSA01623 - GOW III.zar");
+        fs::write(&zar, b"zar").unwrap();
+        assert_eq!(game_choice("game_dir", dir.path().to_path_buf()), zar);
+    }
+
+    #[test]
+    fn a_game_folder_with_eboot_stays_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("eboot.bin"), b"elf").unwrap();
+        fs::write(dir.path().join("CUSA01623.zar"), b"zar").unwrap();
+        assert_eq!(
+            game_choice("game_dir", dir.path().to_path_buf()),
+            dir.path().to_path_buf()
+        );
+    }
+
+    #[test]
+    fn a_folder_with_two_zars_is_not_guessed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("one.zar"), b"zar").unwrap();
+        fs::write(dir.path().join("two.zar"), b"zar").unwrap();
+        assert_eq!(
+            game_choice("game_dir", dir.path().to_path_buf()),
+            dir.path().to_path_buf()
+        );
+    }
+
+    #[test]
+    fn another_folder_setting_is_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("one.zar"), b"zar").unwrap();
+        assert_eq!(
+            game_choice("update_dir", dir.path().to_path_buf()),
+            dir.path().to_path_buf()
+        );
+    }
+
+    #[test]
+    fn a_zar_file_stays_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let zar = dir.path().join("game.zar");
+        fs::write(&zar, b"zar").unwrap();
+        assert_eq!(game_choice("game_dir", zar.clone()), zar);
     }
 }

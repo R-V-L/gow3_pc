@@ -26,6 +26,8 @@ SIZES = {'native': (1920, 1080), '480p': (854, 480), '720p': (1280, 720), '900p'
          '1440p': (2560, 1440), '1800p': (3200, 1800), '4K': (3840, 2160), '8K': (7680, 4320)}
 ASPECTS = (('16:9', 16 / 9), ('16:10', 16 / 10), ('21:9', 2.37), ('32:9', 32 / 9), ('4:3', 4 / 3))
 ENGINE_FPS = (60, 100, 120, 144, 180, 240)
+# The present rate limits the in-game Display page offers; 0 is unlimited.
+FPS_LIMITS = (30, 60, 100, 120, 144, 180, 240, 0)
 # The Steam Deck's DMI names: LCD (Jupiter) and OLED (Galileo), both with a 1280 × 800 screen (#855).
 STEAM_DECK_PRODUCTS = ('Jupiter', 'Galileo')
 STEAM_DECK_RESOLUTION = '1280x800'
@@ -47,7 +49,10 @@ def default_render_resolution(dmi=Path('/sys/devices/virtual/dmi/id')):
     return STEAM_DECK_RESOLUTION if steam_deck(dmi) else 'native'
 
 
-DEFAULTS = {'render_resolution': default_render_resolution(), 'engine_fps': '120', 'deferred_readback': '1',
+# The Steam Deck starts with a 60 FPS limit; every other machine is unlimited until chosen.
+DEFAULT_FPS_LIMIT = '60' if steam_deck() else '0'
+DEFAULTS = {'render_resolution': default_render_resolution(), 'engine_fps': '120',
+            'fps_limit': DEFAULT_FPS_LIMIT, 'deferred_readback': '1',
             'stale_readback': '1', 'async_shaders': '1', 'monitor': '', 'hdr': '0',
             'glyph_style': 'off', 'anisotropy': '0'}
 RESOLUTION_PREFIX = 'Resolution Patch'
@@ -162,6 +167,8 @@ def startup_options(ini, extra=()):
         options['render_resolution'] = 'native'
     if options['engine_fps'] not in {str(f) for f in ENGINE_FPS}:
         options['engine_fps'] = '120'
+    if options['fps_limit'] not in {str(f) for f in FPS_LIMITS}:
+        options['fps_limit'] = '0'
     for key in ('deferred_readback', 'stale_readback', 'async_shaders'):
         options[key] = '0' if options[key] == '0' else '1'
     monitor = options['monitor']

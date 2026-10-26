@@ -69,6 +69,7 @@ class GraphicsOptionsTest(unittest.TestCase):
             {
                 'render_resolution': 'native',
                 'engine_fps': '120',
+                'fps_limit': '0',
                 'deferred_readback': '1',
                 'stale_readback': '1',
                 'async_shaders': '1',

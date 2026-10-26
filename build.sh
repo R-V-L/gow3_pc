@@ -12,8 +12,10 @@ fi
 # the probe both get section GC.
 march=${SPARTAN_MARCH:-}
 tune=${SPARTAN_TUNE:-znver2}
+lto=${SPARTAN_LTO:-ON}
 common=(-O3 -g -mtune="$tune" -ffunction-sections -fdata-sections
-        -fno-semantic-interposition -fno-plt -flto)
+        -fno-semantic-interposition -fno-plt)
+if [[ $lto != OFF && $lto != off && $lto != 0 ]]; then common+=(-flto); fi
 if [[ -n $march ]]; then common+=(-march="$march"); fi
 # The native tests are short-lived checks, not the game: no LTO, no optimization. Their LTO links
 # were the bulk of a CI run (one test took ten minutes to link before failing).

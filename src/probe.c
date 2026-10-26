@@ -895,8 +895,16 @@ static void zar_list_node(ZArchive *archive,int64_t node,const char *prefix,unsi
         int is_file=0;
         if (!zarchive_child(archive,node,i,name,sizeof(name),&is_file)) break;
         char path[4096];
-        if (prefix[0]) snprintf(path,sizeof(path),"%s/%s",prefix,name);
-        else snprintf(path,sizeof(path),"%s",name);
+        const size_t prefix_len=prefix[0] ? strlen(prefix) : 0;
+        const size_t name_len=strlen(name);
+        if (prefix_len+(prefix[0] ? 1 : 0)+name_len>=sizeof(path)) continue;
+        if (prefix[0]) {
+            memcpy(path,prefix,prefix_len);
+            path[prefix_len]='/';
+            memcpy(path+prefix_len+1,name,name_len+1);
+        } else {
+            memcpy(path,name,name_len+1);
+        }
         const int64_t handle=zarchive_find(archive,path);
         if (handle==ZARCHIVE_NONE) continue;
         if (is_file) {

@@ -8,7 +8,8 @@ sudo=$([[ $(id -u) == 0 ]] || echo sudo)
 # Where the source-built headers and SDL3 go: /usr/local normally, a user-writable prefix in CI
 # (so actions/cache can store it; the workflow exports CMAKE_PREFIX_PATH/PKG_CONFIG_PATH/...).
 prefix=${SPARTAN_DEPS_PREFIX:-/usr/local}
-install_sudo=$([[ $prefix == /usr/local ]] && echo "$sudo")
+install_sudo=
+if [[ $prefix == /usr/local ]]; then install_sudo=$sudo; fi
 mkdir -p "$prefix"
 export DEBIAN_FRONTEND=noninteractive
 $sudo apt-get update

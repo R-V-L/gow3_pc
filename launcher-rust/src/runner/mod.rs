@@ -619,6 +619,12 @@ impl<'a> Runner<'a> {
             chosen.min(engine_fps)
         ));
         // 13. The controller glyphs and the pause menu's Exit to Desktop row.
+        // The native Graphics/Display/Controls menu is not safe at 1280x800 yet: the game reads a
+        // bad string while it builds the page. The host overlay still has the same settings, and
+        // the game's own pause menu is untouched, so leave the WAD out at that size until fixed.
+        if graphics.options.render_resolution == "1280x800" {
+            self.set_default("SPARTAN_PAUSE_MENU", "0");
+        }
         let mount_args = self.mounts(&plan, &probe_text, &game);
         if self.host.interrupted() {
             return INTERRUPTED;
@@ -1064,6 +1070,13 @@ pub fn pause_menu_args(
     env: Lookup,
     log: &mut dyn FnMut(String),
 ) -> Vec<String> {
+    if let Some(value) = env("SPARTAN_PAUSE_MENU") {
+        let value = value.to_ascii_lowercase();
+        if value == "0" || value == "off" || value == "minimal" {
+            log("Pause menu: off (SPARTAN_PAUSE_MENU); the game's own menu is used".to_string());
+            return Vec::new();
+        }
+    }
     let guest = format!("/app0/{}=", pause_menu::WAD);
     let source = mounts
         .iter()
@@ -1357,6 +1370,25 @@ mod tests {
             log.push(line)
         });
         (args, log)
+    }
+
+    #[test]
+    fn pause_menu_args_can_be_switched_off() {
+        let run = glyph_run(true);
+        let mut log = Vec::new();
+        let args = pause_menu_args(
+            &run.game,
+            &run.out,
+            &[],
+            Some("en"),
+            &|key| (key == "SPARTAN_PAUSE_MENU").then(|| "0".to_string()),
+            &mut |line| log.push(line),
+        );
+        assert!(args.is_empty());
+        assert_eq!(
+            log,
+            ["Pause menu: off (SPARTAN_PAUSE_MENU); the game's own menu is used"]
+        );
     }
 
     #[test]

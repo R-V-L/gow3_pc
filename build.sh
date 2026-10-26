@@ -15,6 +15,11 @@ tune=${SPARTAN_TUNE:-znver2}
 common=(-O3 -g -mtune="$tune" -ffunction-sections -fdata-sections
         -fno-semantic-interposition -fno-plt -flto)
 if [[ -n $march ]]; then common+=(-march="$march"); fi
+# The native tests are short-lived checks, not the game: no LTO, no optimization. Their LTO links
+# were the bulk of a CI run (one test took ten minutes to link before failing).
+test_common=(-O0 -g -mtune="$tune" -ffunction-sections -fdata-sections
+             -fno-semantic-interposition -fno-plt)
+if [[ -n $march ]]; then test_common+=(-march="$march"); fi
 link=(-Wl,--gc-sections -Wl,-O1)
 case $(uname -s) in
 MINGW*|MSYS*) ;;
@@ -116,34 +121,34 @@ if [[ ! -f out/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer out/l
     ar rcs out/libatrac9.a out/atrac9/*.o
 fi
 # isa_emulate runs inside guest code: no XMM/YMM.
-"$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -mgeneral-regs-only -c src/isa_emulate.c -o out/isa_emulate.o
+"$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -mgeneral-regs-only -c src/isa_emulate.c -o out/isa_emulate.o
 "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/spartanport-probe
 echo "Built $PWD/out/spartanport-probe"
 # GPU check for run.sh (live_resolution=auto): links only the Vulkan loader.
 "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -Igpu/shadps4 tools/gpu_capabilities.c "${libraries[@]}" "${link[@]}" -o out/spartanport-gpu-capabilities
 if [[ ${1:-} == --test ]]; then
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" "${link[@]}" -o out/pad-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" "${link[@]}" -o out/pad-test
     out/pad-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/runtime-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/runtime-test
     out/runtime-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_audio.c "${libraries[@]}" "${link[@]}" -o out/audio-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_audio.c "${libraries[@]}" "${link[@]}" -o out/audio-test
     out/audio-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c "${gpu[@]}" "${libraries[@]}" -Wl,--allow-shlib-undefined "${link[@]}" -o out/file-mods-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c "${gpu[@]}" "${libraries[@]}" -Wl,--allow-shlib-undefined "${link[@]}" -o out/file-mods-test
     out/file-mods-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/sema-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/sema-test
     out/sema-test
-    "$CC" -std=c11 -D_GNU_SOURCE "${common[@]}" -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c "${link[@]}" -o out/content-test
+    "$CC" -std=c11 -D_GNU_SOURCE "${test_common[@]}" -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c "${link[@]}" -o out/content-test
     out/content-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_mp3.c src/runtime_mp3.c out/libatrac9.a -lm "${libraries[@]}" "${link[@]}" -o out/mp3-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_mp3.c src/runtime_mp3.c out/libatrac9.a -lm "${libraries[@]}" "${link[@]}" -o out/mp3-test
     out/mp3-test tests/data/sine.mp3
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_videodec.c "${libraries[@]}" "${link[@]}" -o out/videodec-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_videodec.c "${libraries[@]}" "${link[@]}" -o out/videodec-test
     out/videodec-test tests/data/tiny.h264
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_services.c "${link[@]}" -o out/services-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_services.c "${link[@]}" -o out/services-test
     out/services-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -mbmi -mlzcnt -mmovbe -I. -Isrc tests/test_isa_emulate.c out/isa_emulate.o "${link[@]}" -o out/isa-emulate-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -mbmi -mlzcnt -mmovbe -I. -Isrc tests/test_isa_emulate.c out/isa_emulate.o "${link[@]}" -o out/isa-emulate-test
     out/isa-emulate-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -c src/isa_rewrite.c -I. -Isrc -o out/isa_rewrite.o
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -mbmi -mlzcnt -I. -Isrc tests/test_isa_stub.c out/isa_rewrite.o out/isa_emulate.o "${link[@]}" -o out/isa-stub-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -c src/isa_rewrite.c -I. -Isrc -o out/isa_rewrite.o
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -mbmi -mlzcnt -I. -Isrc tests/test_isa_stub.c out/isa_rewrite.o out/isa_emulate.o "${link[@]}" -o out/isa-stub-test
     out/isa-stub-test tests/data/isa_fixture.bin
     ninja -C out/gpu graphics-settings-test
     out/gpu/graphics-settings-test

@@ -1,0 +1,28 @@
+# Regenerates the UI snapshot references on Windows, where the comparison runs
+# (`launcher-rust/tests/ui_snapshots.rs`; `UPDATE_SNAPSHOTS=1` writes them).
+# Dispatch it on the branch, download the `ui-snapshots` artifact, and commit
+# the changed `launcher-rust/snapshots/*.png` files.
+name: Update UI snapshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher-rust -> target
+      - name: Render the references
+        working-directory: launcher-rust
+        env:
+          UPDATE_SNAPSHOTS: "1"
+        run: cargo test --test ui_snapshots -- game -- --nocapture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-snapshots
+          path: launcher-rust/snapshots

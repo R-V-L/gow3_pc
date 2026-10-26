@@ -15,7 +15,7 @@ export DEBIAN_FRONTEND=noninteractive
 $sudo apt-get update
 $sudo apt-get install -y --no-install-recommends \
     build-essential g++-14 gcc-14 cmake ninja-build pkg-config git curl ca-certificates file patchelf binutils ccache nasm \
-    libvulkan-dev glslang-tools libboost-dev libfmt-dev libxxhash-dev libzstd-dev libzydis-dev robin-map-dev \
+    libvulkan-dev glslang-tools libboost-dev libfmt-dev libxxhash-dev libzstd-dev libzydis-dev robin-map-dev zlib1g-dev \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev \
     libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libdrm-dev libgbm-dev \
     libegl-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libibus-1.0-dev \
@@ -66,8 +66,8 @@ if [[ ! -f $prefix/lib/libavcodec.so.60 ]]; then
             --disable-network --disable-encoders --disable-muxers --disable-devices --disable-filters \
             --enable-shared --disable-static --enable-pthreads \
             --enable-avcodec --enable-avformat --enable-avutil --enable-swscale --enable-swresample \
-            --enable-protocol=file --enable-demuxer=mov,mp3,wav,ogg,matroska \
-            --enable-decoder=h264,hevc,mp3,aac,ac3,eac3,flac,vorbis,opus,pcm_s16le \
+            --enable-zlib --enable-protocol=file --enable-demuxer=mov,mp3,wav,ogg,matroska \
+            --enable-decoder=h264,hevc,mp3,aac,ac3,eac3,flac,vorbis,opus,pcm_s16le,png \
             --enable-parser=h264,hevc,aac,mp3 --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
         make -j"$(nproc)"
         $install_sudo make install

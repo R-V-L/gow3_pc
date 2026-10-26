@@ -48,3 +48,4 @@ launcher-rust/target/
 /release.json
 # Brainstorming companion sessions
 .superpowers/
+.deps/

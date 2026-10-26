@@ -14,11 +14,10 @@ mkdir -p "$prefix"
 export DEBIAN_FRONTEND=noninteractive
 $sudo apt-get update
 $sudo apt-get install -y --no-install-recommends \
-    build-essential g++-14 gcc-14 cmake ninja-build pkg-config git curl ca-certificates file patchelf binutils ccache \
+    build-essential g++-14 gcc-14 cmake ninja-build pkg-config git curl ca-certificates file patchelf binutils ccache lld \
     libvulkan-dev glslang-tools libboost-dev libfmt-dev libxxhash-dev libzstd-dev libzydis-dev robin-map-dev \
-    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev \
-    libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libdrm-dev libgbm-dev \
+    libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libdrm-dev libgbm-dev \
     libegl-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libibus-1.0-dev \
     python3
 $sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
@@ -48,8 +47,34 @@ SDL=${SDL:-3.4.16}
 if [[ ! -f $prefix/lib/libSDL3.so ]]; then
     curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz" | tar xz -C "$work"
     cmake -S "$work/SDL3-$SDL" -B "$work/sdl" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
-        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_STATIC=OFF >/dev/null
+        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_STATIC=OFF \
+        -DSDL_WAYLAND_LIBDECOR=OFF >/dev/null
     ninja -C "$work/sdl" >/dev/null
     $install_sudo ninja -C "$work/sdl" install >/dev/null
+fi
+# FFmpeg: only the decoders/demuxers the game uses. The distro build links every encoder
+# (x265/codec2/AV1...) plus librsvg/cairo/pango/ICU and the network libraries, which the
+# AppImage then carries.
+FFMPEG=${FFMPEG:-6.1.1}
+if [[ ! -f $prefix/lib/libavcodec.so.60 ]]; then
+    curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG.tar.xz" | tar xJ -C "$work"
+    (
+        cd "$work/ffmpeg-$FFMPEG"
+        ./configure --prefix="$prefix" \
+            --disable-everything --disable-autodetect --disable-programs --disable-doc \
+            --disable-avdevice --disable-avfilter --disable-postproc \
+            --disable-network --disable-encoders --disable-muxers --disable-devices --disable-filters \
+            --disable-hwaccels --disable-vaapi --disable-vdpau --disable-cuda --disable-vulkan \
+            --disable-d3d11va --disable-dxva2 --disable-videotoolbox --disable-nvenc --disable-nvdec \
+            --disable-amf --disable-v4l2-m2m --disable-mediacodec --disable-rkmpp --disable-ohcodec \
+            --disable-xlib --disable-zlib --disable-bzlib --disable-lzma --disable-iconv \
+            --enable-shared --disable-static --enable-pthreads \
+            --enable-avcodec --enable-avformat --enable-avutil --enable-swscale --enable-swresample \
+            --enable-protocol=file --enable-demuxer=mov,mp3,wav,ogg,matroska \
+            --enable-decoder=h264,hevc,mp3,aac,ac3,eac3,flac,vorbis,opus,pcm_s16le \
+            --enable-parser=h264,hevc,aac,mp3 --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb
+        make -j"$(nproc)"
+        $install_sudo make install
+    )
 fi
 if [[ $prefix == /usr/local ]]; then $sudo ldconfig; fi

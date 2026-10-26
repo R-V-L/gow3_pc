@@ -58,7 +58,7 @@ jobs:
         with:
           workspaces: launcher-rust -> target
       - name: Build
-        run: bash build.sh
+        run: bash build.sh --test
       - name: Stamp
         if: inputs.tag != '' && inputs.stamp
         env:

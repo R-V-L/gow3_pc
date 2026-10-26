@@ -16,6 +16,10 @@ on:
         description: Attach the release stamp
         type: boolean
         default: true
+      test:
+        description: Run the native tests before the AppImage (slow)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -58,6 +62,10 @@ jobs:
         with:
           workspaces: launcher-rust -> target
       - name: Build
+        if: ${{ !inputs.test }}
+        run: bash build.sh
+      - name: Build and test
+        if: ${{ inputs.test }}
         run: bash build.sh --test
       - name: Stamp
         if: inputs.tag != '' && inputs.stamp

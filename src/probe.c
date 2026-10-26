@@ -4,9 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <SDL3/SDL.h>
 #include "runtime.h"
+#include "runtime_zarchive.h"
 #include "cpu_check.h"
 #include "isa_rewrite.h"
 #include "orb_hook.h"
@@ -345,11 +347,8 @@ static void watchdog(int sig, siginfo_t *info, void *context) {
 }
 #endif
 /* param.sfo lookup: string or integer value of key, 0 when absent. */
-static int sfo_value(const char *path, const char *key, char *text, size_t text_size, uint32_t *number) {
-    FILE *f=fopen(path,"rb");
-    if (!f) return 0;
-    unsigned char data[65536];
-    size_t n=fread(data,1,sizeof(data),f); fclose(f);
+static int sfo_value_data(const unsigned char *data, size_t n, const char *key, char *text,
+                          size_t text_size, uint32_t *number) {
     if (n<20 || memcmp(data,"\0PSF",4)) return 0;
     uint32_t keys, values, count;
     memcpy(&keys,data+8,4); memcpy(&values,data+12,4); memcpy(&count,data+16,4);
@@ -364,6 +363,29 @@ static int sfo_value(const char *path, const char *key, char *text, size_t text_
             memcpy(text,data+values+offset,copy); text[copy]=0;
         }
         return 1;
+    }
+    return 0;
+}
+static int sfo_value(const char *path, const char *key, char *text, size_t text_size, uint32_t *number) {
+    FILE *f=fopen(path,"rb");
+    if (!f) return 0;
+    unsigned char data[65536];
+    size_t n=fread(data,1,sizeof(data),f); fclose(f);
+    return sfo_value_data(data,n,key,text,text_size,number);
+}
+/* param.sfo through the guest file system: the same code reads an unpacked folder and a .zar. */
+static int sfo_value_app0(const char *app0, const char *key, char *text, size_t text_size, uint32_t *number) {
+    int fd=(int)runtime_file_open("/app0/sce_sys/param.sfo",0,0);
+    if (fd>=0) {
+        unsigned char data[65536];
+        int64_t n=runtime_file_read(fd,data,sizeof(data));
+        runtime_file_close(fd);
+        if (n>0) return sfo_value_data(data,(size_t)n,key,text,text_size,number);
+    }
+    if (app0) {
+        char path[4096];
+        snprintf(path,sizeof(path),"%s/sce_sys/param.sfo",app0);
+        return sfo_value(path,key,text,text_size,number);
     }
     return 0;
 }
@@ -864,6 +886,60 @@ static int describe_displays(void) {
     return 0;
 }
 
+/* --zar-list <image.zar>: "F <size>\t<path>" for files, "D\t<path>" for directories, and a
+ * leading "Z\t<archive size>" line. The preparation scripts use it instead of extracting the
+ * whole image. */
+static void zar_list_node(ZArchive *archive,int64_t node,const char *prefix,unsigned depth) {
+    char name[512];
+    for (uint32_t i=0;;++i) {
+        int is_file=0;
+        if (!zarchive_child(archive,node,i,name,sizeof(name),&is_file)) break;
+        char path[4096];
+        if (prefix[0]) snprintf(path,sizeof(path),"%s/%s",prefix,name);
+        else snprintf(path,sizeof(path),"%s",name);
+        const int64_t handle=zarchive_find(archive,path);
+        if (handle==ZARCHIVE_NONE) continue;
+        if (is_file) {
+            printf("f\t%llu\t%s\n",(unsigned long long)zarchive_entry_size(archive,handle),path);
+        } else {
+            printf("d\t%s\n",path);
+            if (depth<64) zar_list_node(archive,handle,path,depth+1);
+        }
+    }
+}
+static int zar_list(const char *path) {
+    ZArchive *archive=zarchive_open(path);
+    if (!archive) { fprintf(stderr,"Cannot open %s: %s\n",path,zarchive_error()); return 1; }
+    printf("z\t%llu\n",(unsigned long long)zarchive_size(archive));
+    zar_list_node(archive,0,"",0);
+    zarchive_close(archive);
+    return 0;
+}
+/* --zar-extract <image.zar> <entry> <out>: one file, written by the caller's path. */
+static int zar_extract(const char *archive_path,const char *entry,const char *out_path) {
+    ZArchive *archive=zarchive_open(archive_path);
+    if (!archive) { fprintf(stderr,"Cannot open %s: %s\n",archive_path,zarchive_error()); return 1; }
+    const int64_t node=zarchive_find(archive,entry);
+    if (node==ZARCHIVE_NONE || !zarchive_is_file(archive,node)) {
+        fprintf(stderr,"No file %s in %s\n",entry,archive_path);
+        zarchive_close(archive);
+        return 1;
+    }
+    const uint64_t size=zarchive_entry_size(archive,node);
+    unsigned char *data=malloc((size_t)(size ? size : 1));
+    if (!data) { fprintf(stderr,"Out of memory extracting %s\n",entry); zarchive_close(archive); return 1; }
+    const int64_t n=zarchive_read_all(archive,entry,data,size);
+    zarchive_close(archive);
+    if (n<0) { fprintf(stderr,"Cannot read %s from %s\n",entry,archive_path); free(data); return 1; }
+    FILE *f=fopen(out_path,"wb");
+    if (!f) { fprintf(stderr,"Cannot write %s: %s\n",out_path,strerror(errno)); free(data); return 1; }
+    const size_t written=fwrite(data,1,(size_t)n,f);
+    const int close_error=fclose(f);
+    free(data);
+    if (written!=(size_t)n || close_error) { fprintf(stderr,"Cannot write %s\n",out_path); return 1; }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #ifndef _WIN32
@@ -889,6 +965,8 @@ int main(int argc, char **argv) {
         /* Before the memory reservation: this only asks SDL, nothing of the game is set up yet. */
         return describe_displays();
     }
+    if (argc >= 3 && !strcmp(argv[1], "--zar-list")) return zar_list(argv[2]);
+    if (argc >= 5 && !strcmp(argv[1], "--zar-extract")) return zar_extract(argv[2],argv[3],argv[4]);
 #ifdef _WIN32
     /* The PS4 user range must stay free of host allocations (GPU driver, heaps), and the guest
      * TCB needs one of the 64 TEB TLS slots before DLLs (Vulkan drivers) take them. */
@@ -919,7 +997,7 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
     }
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
+        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir|image.zar] [--user dir] [--patches file] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays | --zar-list image.zar | --zar-extract image.zar entry out\n", argv[0]);
         return 1;
     }
     if (!cpu_supported(missing, sizeof missing)) return 20;
@@ -959,9 +1037,9 @@ int main(int argc, char **argv) {
             if (runtime_file_mount(guest, eq + 1)) { fprintf(stderr, "Cannot mount %s: too many mounts or host path longer than 511 characters\n", mounts[i]); return 1; }
             printf("Runtime: mount %s -> %s\n", guest, eq + 1);
         }
-        char sfo[4096], id[16]="";
-        snprintf(sfo,sizeof(sfo),"%s/sce_sys/param.sfo",app0);
-        if (sfo_value(sfo,"INSTALL_DIR_SAVEDATA",id,sizeof(id),NULL) || sfo_value(sfo,"TITLE_ID",id,sizeof(id),NULL))
+        char id[16]="";
+        if (sfo_value_app0(app0,"INSTALL_DIR_SAVEDATA",id,sizeof(id),NULL) ||
+            sfo_value_app0(app0,"TITLE_ID",id,sizeof(id),NULL))
             runtime_savedata_configure(id);
     }
     spartanportgpu_register_kernel();
@@ -1103,12 +1181,11 @@ int main(int argc, char **argv) {
         return 20;
     }
     if (!cpu_only) {
-        char title[128]="SpartanPort", serial[16]="UNKNOWN", sfo[4096];
+        char title[128]="SpartanPort", serial[16]="UNKNOWN";
         uint32_t attributes=0;
-        snprintf(sfo,sizeof(sfo),"%s/sce_sys/param.sfo",app0 ? app0 : ".");
-        sfo_value(sfo,"TITLE",title,sizeof(title),NULL);
-        sfo_value(sfo,"TITLE_ID",serial,sizeof(serial),NULL);
-        sfo_value(sfo,"ATTRIBUTE",NULL,0,&attributes);
+        sfo_value_app0(app0,"TITLE",title,sizeof(title),NULL);
+        sfo_value_app0(app0,"TITLE_ID",serial,sizeof(serial),NULL);
+        sfo_value_app0(app0,"ATTRIBUTE",NULL,0,&attributes);
         uint64_t sdk=0;
         if (procparam) memcpy(&sdk,image+procparam+16,8); /* procparam: size, magic, count, sdk_version */
         SpartanGpuConfig gpu={title,serial,user_dir ? user_dir : "user",(uint32_t)sdk,attributes,1920,1080};

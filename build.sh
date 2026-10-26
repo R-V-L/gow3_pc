@@ -128,7 +128,7 @@ if [[ ${1:-} == --test ]]; then
     out/runtime-test
     "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_audio.c "${libraries[@]}" "${link[@]}" -o out/audio-test
     out/audio-test
-    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c "${link[@]}" -o out/file-mods-test
+    "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/file-mods-test
     out/file-mods-test
     "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/sema-test
     out/sema-test

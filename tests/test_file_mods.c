@@ -1,6 +1,9 @@
 /* Exercise actual guest file operations on a linked overlay and writable saves. */
 #include "../src/runtime_file.c"
 #include <assert.h>
+/* The GPU library (the zarchive bridge) references these; this test only calls zarchive_*. */
+uint64_t runtime_disabled_optimizations;
+__thread sigjmp_buf *runtime_fault_recover;
 static int32_t guest_errno;
 int32_t *runtime_errno(void) { return &guest_errno; }
 int32_t runtime_guest_errno(int e) { return e; }

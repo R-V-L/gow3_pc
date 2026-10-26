@@ -637,7 +637,7 @@ fn a_long_folder_stays_on_one_line_in_its_field() {
     );
     assert!(field.height < 2.0 * line.height, "{} high", field.height);
     // Mockup `.folder { grid-template-columns: 150px 1fr auto auto; gap: 8px }`.
-    let name = ui.find("Game folder").unwrap().bounds();
+    let name = ui.find("Game folder or image").unwrap().bounds();
     let browse = ui.find("Browse…").unwrap().bounds();
     assert!(
         (field.x - (name.x + 150.0 + 8.0)).abs() < 0.5,

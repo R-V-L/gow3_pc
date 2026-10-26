@@ -14,8 +14,8 @@ use crate::core::catalog::setting;
 use crate::core::fs::atomic_write;
 use crate::core::ini::{read_ini, write_lines, HEADER};
 use crate::core::options::{
-    Choice, ANISOTROPY, ENGINE_FPS_CHOICES, FRAME_RATE_PATCH_PREFIX, GLYPH_STYLES, RESOLUTIONS,
-    RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH,
+    Choice, ANISOTROPY, ENGINE_FPS_CHOICES, FPS_LIMITS, FRAME_RATE_PATCH_PREFIX, GLYPH_STYLES,
+    RESOLUTIONS, RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH,
 };
 use crate::core::python::ensure_ascii;
 
@@ -101,6 +101,7 @@ pub fn resolutions(extra: &[String]) -> Vec<String> {
 pub struct Options {
     pub render_resolution: String,
     pub engine_fps: String,
+    pub fps_limit: String,
     pub deferred_readback: String,
     pub stale_readback: String,
     pub async_shaders: String,
@@ -117,6 +118,7 @@ impl Options {
         [
             ("render_resolution", &self.render_resolution),
             ("engine_fps", &self.engine_fps),
+            ("fps_limit", &self.fps_limit),
             ("deferred_readback", &self.deferred_readback),
             ("stale_readback", &self.stale_readback),
             ("async_shaders", &self.async_shaders),
@@ -151,24 +153,37 @@ fn choice_or(value: String, choices: &[Choice], default: &str) -> String {
 /// The start-up options of `ini`, normalized; unknown values fall back to the defaults. `extra`: the
 /// resolutions of the enabled mods (a mod that is off leaves its resolution out: native).
 pub fn startup_options(ini: &IndexMap<String, String>, extra: &[String]) -> Options {
+    startup_options_at(ini, extra, Path::new(DMI))
+}
+
+fn startup_options_at(ini: &IndexMap<String, String>, extra: &[String], dmi: &Path) -> Options {
     let get = |key: &str, default: &str| ini.get(key).map_or(default, String::as_str).to_string();
     let flag = |key: &str| if get(key, "1") == "0" { "0" } else { "1" }.to_string();
     let monitor = get("monitor", "");
-    let mut render_resolution = get(
-        "render_resolution",
-        default_render_resolution(Path::new(DMI)),
-    );
+    let deck = steam_deck(dmi);
+    let mut render_resolution = get("render_resolution", default_render_resolution(dmi));
     if !resolutions(extra).contains(&render_resolution) {
         render_resolution = "native".to_string();
     }
-    let default_fps = setting("engine_fps").map_or_else(String::new, |row| row.default.as_text());
+    let default_fps = if deck {
+        "60".to_string()
+    } else {
+        setting("engine_fps").map_or_else(String::new, |row| row.default.as_text())
+    };
     let mut engine_fps = get("engine_fps", &default_fps);
     if !ENGINE_FPS_CHOICES.iter().any(|c| c.value == engine_fps) {
         engine_fps = default_fps;
     }
+    let default_fps_limit = if deck {
+        "60".to_string()
+    } else {
+        setting("fps_limit").map_or_else(|| "0".to_string(), |row| row.default.as_text())
+    };
+    let fps_limit = choice_or(get("fps_limit", &default_fps_limit), FPS_LIMITS, "0");
     Options {
         render_resolution,
         engine_fps,
+        fps_limit,
         deferred_readback: flag("deferred_readback"),
         stale_readback: flag("stale_readback"),
         async_shaders: flag("async_shaders"),
@@ -310,6 +325,20 @@ pub fn patch_names(
     options: &Options,
     texture_fix_available: bool,
 ) -> Vec<String> {
+    patch_names_at(
+        names,
+        options,
+        texture_fix_available,
+        steam_deck(Path::new(DMI)),
+    )
+}
+
+fn patch_names_at(
+    names: &[String],
+    options: &Options,
+    texture_fix_available: bool,
+    deck: bool,
+) -> Vec<String> {
     let mut names: Vec<String> = names
         .iter()
         .filter(|n| {
@@ -328,7 +357,7 @@ pub fn patch_names(
     // the swing energy fix and a vblank every lower rate fits in.
     names.push(format!(
         "{FRAME_RATE_PATCH_PREFIX} - {} FPS",
-        highest_engine_fps()
+        highest_engine_fps(deck)
     ));
     names
 }
@@ -336,7 +365,10 @@ pub fn patch_names(
 /// The refresh rate (VBlank and engine FPS) when no patch asks for another (`run.py`).
 pub const DEFAULT_VBLANK_HZ: u32 = 60;
 
-fn highest_engine_fps() -> u32 {
+fn highest_engine_fps(deck: bool) -> u32 {
+    if deck {
+        return 120;
+    }
     ENGINE_FPS_CHOICES
         .iter()
         .filter_map(|c| c.value.parse().ok())
@@ -613,6 +645,7 @@ mod tests {
             Options {
                 render_resolution: "native".into(),
                 engine_fps: "120".into(),
+                fps_limit: "0".into(),
                 deferred_readback: "1".into(),
                 stale_readback: "1".into(),
                 async_shaders: "1".into(),
@@ -658,6 +691,47 @@ mod tests {
             .collect();
         assert_eq!(resolutions, ["Resolution Patch - 8K"]);
         assert!(!found.iter().any(|n| n == TEXTURE_FIX_PATCH));
+    }
+
+    #[test]
+    fn steam_deck_defaults_to_800p_60_and_a_60_limit() {
+        let dmi = tempfile::tempdir().unwrap();
+        fs::write(dmi.path().join("sys_vendor"), "Valve\n").unwrap();
+        fs::write(dmi.path().join("product_name"), "Jupiter\n").unwrap();
+        let options = startup_options_at(&map(&[]), &[], dmi.path());
+        assert_eq!(options.render_resolution, "1280x800");
+        assert_eq!(options.engine_fps, "60");
+        assert_eq!(options.fps_limit, "60");
+        assert_eq!(
+            patch_names_at(&names(&["Resolution Patch - 4K"]), &options, true, true),
+            ["Resolution Patch - 1280x800", "Frame Rate Patch - 120 FPS"]
+        );
+    }
+
+    #[test]
+    fn the_deck_keeps_saved_choices() {
+        let dmi = tempfile::tempdir().unwrap();
+        fs::write(dmi.path().join("sys_vendor"), "Valve\n").unwrap();
+        fs::write(dmi.path().join("product_name"), "Galileo\n").unwrap();
+        let options = startup_options_at(
+            &map(&[
+                ("render_resolution", "native"),
+                ("engine_fps", "120"),
+                ("fps_limit", "0"),
+            ]),
+            &[],
+            dmi.path(),
+        );
+        assert_eq!(options.render_resolution, "native");
+        assert_eq!(options.engine_fps, "120");
+        assert_eq!(options.fps_limit, "0");
+        assert_eq!(
+            patch_names_at(&names(&[]), &options, true, true),
+            [
+                "Bug Fix - Texture Corruption Fix",
+                "Frame Rate Patch - 120 FPS"
+            ]
+        );
     }
 
     #[test]

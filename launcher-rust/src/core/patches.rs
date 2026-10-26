@@ -2952,6 +2952,7 @@ mod compile_tests {
         let graphics = Options {
             render_resolution: "native".to_string(),
             engine_fps: "60".to_string(),
+            fps_limit: "0".to_string(),
             deferred_readback: "1".to_string(),
             stale_readback: "1".to_string(),
             async_shaders: "1".to_string(),
@@ -3777,6 +3778,7 @@ mod plan_tests {
         Options {
             render_resolution: resolution.to_string(),
             engine_fps: "60".to_string(),
+            fps_limit: "0".to_string(),
             deferred_readback: "1".to_string(),
             stale_readback: "1".to_string(),
             async_shaders: "1".to_string(),

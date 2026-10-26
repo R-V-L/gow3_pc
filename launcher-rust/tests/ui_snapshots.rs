@@ -321,6 +321,10 @@ fn check(shot: Shot) {
                 image.pixels().any(|pixel| *pixel != first),
                 "{name} is blank"
             );
+            if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+                save_reference(&image, &snapshots_dir().join(&name));
+                continue;
+            }
             if !cfg!(windows) {
                 COMPARE_SKIPPED.call_once(|| {
                     let _ = writeln!(
@@ -337,7 +341,6 @@ fn check(shot: Shot) {
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
-
 #[test]
 fn splash() {
     check(Shot::Splash);

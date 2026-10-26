@@ -271,11 +271,9 @@ pub enum Message {
     /// The Aspect ratio box of the Performance page.
     Aspect(String),
     Browse(String),
-    /// The Image… button: a .zar game image for the game folder.
-    BrowseImage,
     /// The folder of a folder setting: the path typed into its field.
     Browsed(String, Option<PathBuf>),
-    /// A folder or image the dialog chose; a folder holding one .zar is the image.
+    /// A file or folder the dialog chose; the game folder takes `eboot.bin` or a .zar.
     Picked(String, Option<PathBuf>),
     /// A game patch check box of the Game page.
     PatchToggled(String, bool),
@@ -464,7 +462,6 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         Message::Browse(key) => return browse(state, key),
-        Message::BrowseImage => return browse_image(state),
         // A folder chosen in the dialog or typed into its field is read at once. Choosing the
         // folder already chosen reads it again (ruling R49): that is how the player has a dump
         // copied into it meanwhile read, as the Python's variable trace fires on any write.
@@ -476,7 +473,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::Browsed(_, None) => {}
         Message::Picked(key, Some(path)) => {
-            let path = game_choice(&key, path);
+            let path = picked_game(&key, path);
             state
                 .store
                 .set(&key, Value::String(path.display().to_string()));
@@ -575,7 +572,8 @@ pub(crate) fn refresh_installation(state: &mut State) {
     state.installation = Installation::of(&state.store);
 }
 
-/// Opens the folder dialog for the setting `key`; the answer comes back as `Picked`.
+/// Opens the dialog for `key`: a file picker for the game (`eboot.bin` or a `.zar`) and a
+/// folder picker for the other folders. The answer comes back as `Picked`.
 fn browse(state: &State, key: String) -> Task<Message> {
     let start = match state.store.text(&key) {
         current if current.is_empty() => state.paths.port_dir.clone(),
@@ -593,18 +591,38 @@ fn browse(state: &State, key: String) -> Task<Message> {
     };
     let dialog = rfd::AsyncFileDialog::new()
         .set_title(tr(&state.lang, game::browse_prompt(&key)))
-        .set_directory(start)
-        .pick_folder();
-    Task::perform(dialog, move |handle| {
-        Message::Picked(key.clone(), handle.map(|h| h.path().to_path_buf()))
-    })
+        .set_directory(start);
+    if key == "game_dir" {
+        let dialog = dialog
+            .add_filter("Game (eboot.bin, .zar)", &["zar", "bin"])
+            .pick_file();
+        Task::perform(dialog, move |handle| {
+            Message::Picked(key.clone(), handle.map(|h| h.path().to_path_buf()))
+        })
+    } else {
+        let dialog = dialog.pick_folder();
+        Task::perform(dialog, move |handle| {
+            Message::Picked(key.clone(), handle.map(|h| h.path().to_path_buf()))
+        })
+    }
 }
 
-/// The game a dialog chose: a folder with no `eboot.bin` but exactly one `.zar` is that image.
-/// The folder picker cannot select a file, and some file dialogs return the folder they started
-/// in; this makes both choices land on the packed image the player meant.
-fn game_choice(key: &str, path: PathBuf) -> PathBuf {
-    if key != "game_dir" || !path.is_dir() || path.join("eboot.bin").is_file() {
+/// The game a dialog chose: a `.zar` is itself, `eboot.bin` is its folder, and a folder with
+/// `eboot.bin` or exactly one `.zar` is that game. Anything else is left for the folder checks.
+fn picked_game(key: &str, path: PathBuf) -> PathBuf {
+    if key != "game_dir" {
+        return path;
+    }
+    if path.is_file() {
+        if is_archive(&path) {
+            return path;
+        }
+        if path.file_name().is_some_and(|name| name == "eboot.bin") {
+            return path.parent().map(Path::to_path_buf).unwrap_or(path);
+        }
+        return path;
+    }
+    if !path.is_dir() || path.join("eboot.bin").is_file() {
         return path;
     }
     let Ok(entries) = fs::read_dir(&path) else {
@@ -618,31 +636,6 @@ fn game_choice(key: &str, path: PathBuf) -> PathBuf {
         (Some(only), None) => only,
         _ => path,
     }
-}
-
-/// Opens the file dialog for a .zar game image; the answer sets `game_dir`, as a folder would.
-fn browse_image(state: &State) -> Task<Message> {
-    let current = PathBuf::from(state.store.text("game_dir"));
-    let start = if current.is_dir() {
-        current
-    } else {
-        current
-            .parent()
-            .filter(|parent| parent.is_dir())
-            .map(|parent| parent.to_path_buf())
-            .unwrap_or_else(|| state.paths.port_dir.clone())
-    };
-    let dialog = rfd::AsyncFileDialog::new()
-        .set_title(tr(&state.lang, "Choose a ZArchive game image (.zar)"))
-        .set_directory(start)
-        .add_filter("ZArchive", &["zar"])
-        .pick_file();
-    Task::perform(dialog, |handle| {
-        Message::Picked(
-            "game_dir".to_string(),
-            handle.map(|h| h.path().to_path_buf()),
-        )
-    })
 }
 
 /// Lists the monitors in the background; the splash does not wait for it.
@@ -1078,7 +1071,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let zar = dir.path().join("CUSA01623 - GOW III.zar");
         fs::write(&zar, b"zar").unwrap();
-        assert_eq!(game_choice("game_dir", dir.path().to_path_buf()), zar);
+        assert_eq!(picked_game("game_dir", dir.path().to_path_buf()), zar);
     }
 
     #[test]
@@ -1087,9 +1080,17 @@ mod tests {
         fs::write(dir.path().join("eboot.bin"), b"elf").unwrap();
         fs::write(dir.path().join("CUSA01623.zar"), b"zar").unwrap();
         assert_eq!(
-            game_choice("game_dir", dir.path().to_path_buf()),
+            picked_game("game_dir", dir.path().to_path_buf()),
             dir.path().to_path_buf()
         );
+    }
+
+    #[test]
+    fn eboot_means_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let eboot = dir.path().join("eboot.bin");
+        fs::write(&eboot, b"elf").unwrap();
+        assert_eq!(picked_game("game_dir", eboot), dir.path().to_path_buf());
     }
 
     #[test]
@@ -1098,7 +1099,7 @@ mod tests {
         fs::write(dir.path().join("one.zar"), b"zar").unwrap();
         fs::write(dir.path().join("two.zar"), b"zar").unwrap();
         assert_eq!(
-            game_choice("game_dir", dir.path().to_path_buf()),
+            picked_game("game_dir", dir.path().to_path_buf()),
             dir.path().to_path_buf()
         );
     }
@@ -1108,7 +1109,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("one.zar"), b"zar").unwrap();
         assert_eq!(
-            game_choice("update_dir", dir.path().to_path_buf()),
+            picked_game("update_dir", dir.path().to_path_buf()),
             dir.path().to_path_buf()
         );
     }
@@ -1118,6 +1119,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let zar = dir.path().join("game.zar");
         fs::write(&zar, b"zar").unwrap();
-        assert_eq!(game_choice("game_dir", zar.clone()), zar);
+        assert_eq!(picked_game("game_dir", zar.clone()), zar);
+    }
+
+    #[test]
+    fn another_file_is_left_for_the_folder_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("param.sfo");
+        fs::write(&file, b"sfo").unwrap();
+        assert_eq!(picked_game("game_dir", file.clone()), file);
     }
 }

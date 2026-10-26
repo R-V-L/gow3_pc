@@ -11,6 +11,7 @@ use iced::{Center, Element, Left, Right, Task};
 use serde_json::{Map, Value};
 
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::installation::is_archive;
 use crate::core::options::LANGUAGES;
 use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta};
 use crate::core::save_backup::{list_backups, restore, KEEP};
@@ -59,7 +60,7 @@ pub fn browse_prompt(key: &str) -> &'static str {
         "user_dir" => "Choose the saves folder",
         "mods_dir" => "Choose the mods folder",
         "patches_dir" => "Choose the patches folder",
-        _ => "Choose the folder with eboot.bin",
+        _ => "Choose the game's eboot.bin or a .zar image",
     }
 }
 
@@ -226,6 +227,8 @@ pub fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Elem
     // folder has nothing to open.
     let open = if key == "user_dir" {
         Some(state.paths.user_dir(&value))
+    } else if key == "game_dir" && is_archive(Path::new(&value)) {
+        Path::new(&value).parent().map(Path::to_path_buf)
     } else {
         (!value.is_empty()).then(|| PathBuf::from(&value))
     };
@@ -336,14 +339,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
         folder_row(
             state,
             "game_dir",
-            &tr(lang, "Game folder"),
+            &tr(lang, "Game folder or image"),
             &hint(
-                "Your own dump of the game (eboot.bin, sce_module, sce_sys) or a packed .zar image: SpartanPort, any region and version."
+                "Your own dump of the game (pick eboot.bin inside it) or a packed .zar image: SpartanPort, any region and version."
             ),
         ),
-        button(text(tr(lang, "Image…")))
-            .style(theme::button_flat)
-            .on_press(Message::BrowseImage),
         folder_row(
             state,
             "update_dir",

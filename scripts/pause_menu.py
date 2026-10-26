@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 22  # of the patch: a change rebuilds the cached copy
+VERSION = 23  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -146,12 +146,17 @@ class Script:
 
     def parse_records(self):
         # The tree starts after a header table of variable length: the first offset that parses
-        # exactly up to the code is it.
+        # exactly up to the code and whose parents are records of the same table is it. The header
+        # table can look like records (a 0x04 byte at each 8-byte entry): its parent words are
+        # not record offsets, and taking it for the tree corrupts it when the patch moves records.
         for start in range(0x18, 0x400, 4):
             try:
-                return self.records_from(start)
+                records = self.records_from(start)
             except ValueError:
                 continue
+            starts = {r['at'] for r in records}
+            if all(r['parent'] in (0, 0xffffffff) or r['parent'] + 4 in starts for r in records):
+                return records
         raise ValueError('state table not found')
 
     def records_from(self, at):

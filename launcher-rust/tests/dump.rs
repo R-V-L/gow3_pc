@@ -629,6 +629,32 @@ fn real_menu_wad_matches_python() {
     }
 }
 
+/// The patch must leave a state tree the game can follow: the header table before the tree can
+/// look like records, and relocating its words corrupts the page ids the game starts from.
+#[test]
+fn real_menu_patch_leaves_a_parseable_state_tree() {
+    let Some(game) = dump() else {
+        return;
+    };
+    if !game.join(pause_menu::WAD).is_file() {
+        return;
+    }
+    let original = fs::read(game.join(pause_menu::WAD)).unwrap();
+    let patched = pause_menu::patch(&original, Some("en"), &|_| None).unwrap();
+    let script = Script::parse(&patched).expect("the patched script parses");
+    let starts: HashSet<usize> = script.records.iter().map(|record| record.at).collect();
+    for record in &script.records {
+        assert!(
+            record.parent == 0
+                || record.parent == u32::MAX as usize
+                || starts.contains(&(record.parent + 4)),
+            "record at {:#x} has parent {:#x}",
+            record.at,
+            record.parent
+        );
+    }
+}
+
 /// The dump's `R_UI.WAD` and its copy patched in English (`GameScript.setUp`,
 /// `NativeCheats.setUpClass`), made once.
 struct Menu {

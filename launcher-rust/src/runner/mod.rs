@@ -619,12 +619,6 @@ impl<'a> Runner<'a> {
             chosen.min(engine_fps)
         ));
         // 13. The controller glyphs and the pause menu's Exit to Desktop row.
-        // The native Graphics/Display/Controls menu is not safe at 1280x800 yet: the game reads a
-        // bad string while it builds the page. The host overlay still has the same settings, and
-        // the game's own pause menu is untouched, so leave the WAD out at that size until fixed.
-        if graphics.options.render_resolution == "1280x800" {
-            self.set_default("SPARTAN_PAUSE_MENU", "0");
-        }
         let mount_args = self.mounts(&plan, &probe_text, &game);
         if self.host.interrupted() {
             return INTERRUPTED;

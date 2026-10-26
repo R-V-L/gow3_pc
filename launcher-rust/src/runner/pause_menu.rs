@@ -45,7 +45,7 @@ use crate::core::python::python_json;
 use crate::runner::glyphs::{entries, Entry};
 
 /// Of the patch: a change rebuilds the cached copy.
-pub const VERSION: u32 = 22;
+pub const VERSION: u32 = 23;
 pub const WAD: &str = "EXEC/WAD/PS4_LE/R_UI.WAD";
 
 /// The Exit to Desktop row's text in one language.
@@ -695,11 +695,24 @@ impl<'a> Script<'a> {
     }
 
     /// The tree starts after a header table of variable length: the first offset that parses
-    /// exactly up to the code is it.
+    /// exactly up to the code and whose parents are records of the same table is it. The header
+    /// table can look like records (a 0x04 byte at each 8-byte entry): its parent words are not
+    /// record offsets, and taking it for the tree corrupts it when a patch moves records.
     fn parse_records(&self) -> Result<Vec<Record>, MenuError> {
         (0x18..0x400)
             .step_by(4)
-            .find_map(|start| self.records_from(start).ok())
+            .find_map(|start| {
+                let records = self.records_from(start).ok()?;
+                let starts: HashSet<usize> = records.iter().map(|record| record.at).collect();
+                records
+                    .iter()
+                    .all(|record| {
+                        record.parent == 0
+                            || record.parent == u32::MAX as usize
+                            || starts.contains(&(record.parent + 4))
+                    })
+                    .then_some(records)
+            })
             .ok_or_else(|| script("state table not found"))
     }
 
@@ -1279,8 +1292,9 @@ pub fn display_health_bar(data: &mut Vec<u8>, spans: &mut Spans) -> Result<(), M
     for record in ancestors(&s, &display)? {
         edits.push((base + record.at, be(0x0400_0000 | (record.size + ROW), 4)?));
     }
+    let starts: HashSet<usize> = s.records.iter().map(|record| record.at).collect();
     for record in &s.records {
-        if record.parent + 4 >= insert {
+        if record.parent + 4 >= insert && starts.contains(&(record.parent + 4)) {
             let parent = relocated(record.parent + 4) - 4;
             edits.push((base + record.at + 4, be(parent, 4)?));
         }
@@ -2632,6 +2646,7 @@ pub fn native_cheats(
             *growth.entry(r.at).or_insert(0) += amount;
         }
     }
+    let starts: HashSet<usize> = s.records.iter().map(|record| record.at).collect();
     for record in &s.records {
         if let Some(grown) = growth.get(&record.at) {
             edits.push((
@@ -2639,7 +2654,7 @@ pub fn native_cheats(
                 be(0x0400_0000 | (record.size + grown), 4)?,
             ));
         }
-        if record.parent + 4 >= opt_at {
+        if record.parent + 4 >= opt_at && starts.contains(&(record.parent + 4)) {
             let parent = relocated(record.parent + 4) - 4;
             edits.push((base + record.at + 4, be(parent, 4)?));
         }

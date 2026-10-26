@@ -12,7 +12,7 @@ fi
 # the probe both get section GC.
 march=${SPARTAN_MARCH:-}
 tune=${SPARTAN_TUNE:-znver2}
-common=(-O3 -g -DNDEBUG -mtune="$tune" -ffunction-sections -fdata-sections
+common=(-O3 -g -mtune="$tune" -ffunction-sections -fdata-sections
         -fno-semantic-interposition -fno-plt -flto)
 if [[ -n $march ]]; then common+=(-march="$march"); fi
 link=(-Wl,--gc-sections -Wl,-O1)

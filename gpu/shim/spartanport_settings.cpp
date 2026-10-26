@@ -553,9 +553,14 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
         else if (index == 3) value = engine_supported ? std::to_string(v.engine_fps.load()) : "-";
         else if (index == 4) value = v.monitor < 0 ? (pt ? "Principal" : "Primary") : std::to_string(v.monitor + 1);
         else if (index == 5) {
-            const char* en[] = {"Windowed", "Borderless", "Fullscreen"};
-            const char* br[] = {"Janela", "Sem bordas", "Tela cheia"};
-            value = (pt ? br : en)[std::clamp(v.display_mode.load(), 0, 2)];
+            // An explicit switch, not a local array chosen by `pt`: GCC 14 with -O3 -flto turned
+            // the English path into a constant "Windowed" while the Portuguese path indexed
+            // correctly, so the label stayed put while the mode changed.
+            switch (std::clamp(v.display_mode.load(), 0, 2)) {
+                case 0: value = pt ? "Janela" : "Windowed"; break;
+                case 1: value = pt ? "Sem bordas" : "Borderless"; break;
+                default: value = pt ? "Tela cheia" : "Fullscreen"; break;
+            }
         } else value = (index == 6 ? v.vsync.load() : v.hdr.load()) ? (pt ? "Ligado" : "On") : (pt ? "Desligado" : "Off");
         const bool selected = group != 0xfc0 && (index != 3 || engine_supported);
         static thread_local std::string labels[8];

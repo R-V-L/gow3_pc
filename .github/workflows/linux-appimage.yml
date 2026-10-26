@@ -67,6 +67,12 @@ jobs:
       - name: Build and test
         if: ${{ inputs.test }}
         run: bash build.sh --test
+      - name: Graphics settings regression test
+        # GCC 14 + LTO once made the English Display Mode label constant; run this one test even
+        # in the fast AppImage build so a codegen regression cannot slip into a release.
+        run: |
+          ninja -C out/gpu graphics-settings-test
+          out/gpu/graphics-settings-test
       - name: Stamp
         if: inputs.tag != '' && inputs.stamp
         env:

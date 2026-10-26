@@ -345,8 +345,26 @@ int main() {
     v.display_mode = G::Windowed;
     spartanportgpu_native_setting(0xfe5);
     assert(v.display_mode == G::Borderless);
+    assert(std::string(text(0xff5)).find("Borderless") != std::string::npos);
+    spartanportgpu_native_setting(0xfe5);
+    assert(v.display_mode == G::Fullscreen);
+    assert(std::string(text(0xff5)).find("Fullscreen") != std::string::npos);
+    spartanportgpu_native_setting(0xfd5);
+    assert(v.display_mode == G::Borderless);
+    assert(std::string(text(0xff5)).find("Borderless") != std::string::npos);
     spartanportgpu_native_setting(0xfd5);
     assert(v.display_mode == G::Windowed);
+    assert(std::string(text(0xff5)).find("Windowed") != std::string::npos);
+    // The same value path in Portuguese: an LTO build once indexed this one but not English.
+    SetEnvironment("SPARTAN_LANGUAGE", "17");
+    spartanportgpu_native_setting(0xfe5);
+    assert(v.display_mode == G::Borderless && std::string(text(0xff5)).find("Sem bordas") != std::string::npos);
+    spartanportgpu_native_setting(0xfe5);
+    assert(v.display_mode == G::Fullscreen && std::string(text(0xff5)).find("Tela cheia") != std::string::npos);
+    spartanportgpu_native_setting(0xfd5);
+    spartanportgpu_native_setting(0xfd5);
+    assert(v.display_mode == G::Windowed && std::string(text(0xff5)).find("Janela") != std::string::npos);
+    SetEnvironment("SPARTAN_LANGUAGE", "");
     v.vsync = true;
     spartanportgpu_native_setting(0xfe6);
     assert(!v.vsync);

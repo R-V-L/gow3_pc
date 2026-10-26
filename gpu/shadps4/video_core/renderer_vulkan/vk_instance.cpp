@@ -10,6 +10,7 @@
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/types.h"
+#include "core/emulator_settings.h"
 #include "imgui/renderer/imgui_core.h"
 #include "sdl_window.h"
 #include "video_core/amdgpu/spartanport_msaa.h"
@@ -744,7 +745,14 @@ bool Instance::CreateDevice() {
     device = std::move(dev);
 
     VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
-    pipeline_binaries =
+    // spartanport: NVIDIA's vkGetPipelineKeyKHR(device, nullptr, &key) writes one dword past an
+    // internal stack buffer and corrupts the caller's saved rbx (reproduced with 595.91.07);
+    // whether that crashes depends on register allocation. Skip the global-key request on that
+    // driver: a zero key disables the pipeline-binary cache (CreateCachedGraphicsPipeline gates
+    // on the global key). SPARTAN_PIPELINE_BINARY_GLOBAL_KEY=1 forces the request.
+    const bool global_key_safe = EmulatorSettingsImpl::Flag(
+        "SPARTAN_PIPELINE_BINARY_GLOBAL_KEY", driver_id != vk::DriverId::eNvidiaProprietary);
+    pipeline_binaries = global_key_safe &&
         InitializePipelineBinaryCache(*device, pipeline_binaries, pipeline_binary_global_key);
     if (Dlss* dlss = Dlss::Get()) {
         dlss->Initialize(*instance, physical_device, *device);

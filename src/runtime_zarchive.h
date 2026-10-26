@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct ZArchive ZArchive;
 
 #define ZARCHIVE_NONE (-1)
@@ -45,5 +49,9 @@ uint64_t zarchive_read(ZArchive *archive, int64_t node, uint64_t offset, void *b
 
 /* Whole file into buffer of at most size bytes; its length, or -1 when missing or too large. */
 int64_t zarchive_read_all(ZArchive *archive, const char *path, void *buffer, uint64_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

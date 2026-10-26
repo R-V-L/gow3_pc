@@ -16,6 +16,7 @@ pub mod prepare;
 pub mod probe_image;
 pub mod sce;
 pub mod window_icon;
+pub mod zarchive;
 
 /// The synthetic probe inputs the runner's tests build (`tests/test_probe.py::package` and more).
 #[cfg(test)]
@@ -337,6 +338,9 @@ impl<'a> Runner<'a> {
         let plan = RunPlan::read(paths, &self.env);
         let port = plan.port.clone();
         self.port.clone_from(&port);
+        // A .zar image is read in place by the runtime; the preparation scripts and the launcher
+        // work on a small extracted view of it (out/zar), built once the probe is known.
+        let archive = zarchive::is_archive(&plan.game).then(|| plan.game.clone());
         // 3. The data folder, its out/ and the ini.
         let (data, out) = (&plan.data, &plan.out);
         legacy::copy_game_settings(data);
@@ -362,11 +366,16 @@ impl<'a> Runner<'a> {
         // resolutions too (SPARTAN_EXTRA_RESOLUTIONS tells the game). A selection that cannot be
         // read stops the start, as run.py's.
         let mut game = plan.game.clone();
+        let mod_game = if archive.is_some() {
+            None
+        } else {
+            Some(game.as_path())
+        };
         let mod_patch_files: Vec<PathBuf> = match mods::enabled_patch_files(
             &plan.mods_dir,
             &plan.mods_config,
             plan.mods_switch != "0",
-            Some(&game),
+            mod_game,
         ) {
             Ok(files) => files,
             Err(error) => return self.fail(&format!("Mods: {error}")),
@@ -441,6 +450,61 @@ impl<'a> Runner<'a> {
         if self.host.interrupted() {
             return INTERRUPTED;
         }
+        // 8a. A .zar image: the runtime reads the file in place (/app0); the preparation scripts
+        // and the launcher get a small view of it (out/zar) with the entries they read.
+        if let Some(image) = &archive {
+            if let Some(update) = &plan.update {
+                return self.fail(&format!(
+                    "A .zar game image cannot take a separate update folder ({}): pack the \
+                     updated game, or use its unpacked folder.",
+                    python_path(update)
+                ));
+            }
+            let listing = match zarchive::Listing::read(self.host, &self.env, &probe, &port, image)
+            {
+                Ok(listing) => listing,
+                Err(error) => {
+                    return self.fail(&format!(
+                        "Cannot read the game image {}: {error}",
+                        python_path(image)
+                    ))
+                }
+            };
+            let style = self.get("SPARTAN_GLYPH_STYLE").unwrap_or("off").to_string();
+            let extra: &[&str] =
+                if matches!(style.as_str(), "auto" | "xbox" | "nintendo" | "keyboard") {
+                    zarchive::GLYPH_WADS
+                } else {
+                    &[zarchive::PAUSE_MENU_WAD]
+                };
+            let view = match zarchive::view(
+                self.host,
+                &self.env,
+                &probe,
+                &port,
+                image,
+                &out.join("zar"),
+                &listing,
+                extra,
+            ) {
+                Ok(view) => view,
+                Err(error) => {
+                    return self.fail(&format!(
+                        "Cannot read the game image {}: {error}",
+                        python_path(image)
+                    ))
+                }
+            };
+            if let Err(error) = listing.write(&out.join("zar-listing.json")) {
+                return self.fail(&format!("Cannot write the game image listing: {error}"));
+            }
+            self.say(&format!(
+                "Game image: {} (read directly by the game; the preparation scripts use {})",
+                python_path(image),
+                python_path(&view)
+            ));
+            game = view;
+        }
         // 8. The game, and the update over it.
         if !game.join("eboot.bin").is_file() {
             return self.fail(&format!(
@@ -474,14 +538,24 @@ impl<'a> Runner<'a> {
                 return 2;
             }
         };
-        let layers = mods::overlay_layers(&game, &plan.mods_dir, Some(&plan.mods_config), enabled)
-            .and_then(|layers| mods::build_overlay(&game, out, &layers));
-        match layers {
-            Ok(overlay) => {
-                game = overlay.root.clone();
-                views.overlay = Some(overlay);
+        if archive.is_some() {
+            // File mods replace files of the dump, which an image does not have; its patches
+            // still apply.
+            self.say(
+                "Mods: replacing game files needs an unpacked game folder; patches from mods \
+                 still apply",
+            );
+        } else {
+            let layers =
+                mods::overlay_layers(&game, &plan.mods_dir, Some(&plan.mods_config), enabled)
+                    .and_then(|layers| mods::build_overlay(&game, out, &layers));
+            match layers {
+                Ok(overlay) => {
+                    game = overlay.root.clone();
+                    views.overlay = Some(overlay);
+                }
+                Err(error) => return self.fail(&format!("Mods: {error}")),
             }
-            Err(error) => return self.fail(&format!("Mods: {error}")),
         }
         if let Err(code) = self.prepare_image(&game, out) {
             return code;
@@ -596,7 +670,7 @@ impl<'a> Runner<'a> {
             "--patches".into(),
             path("patches.bin"),
             "--app0".into(),
-            python_path(&game).into(),
+            python_path(archive.as_deref().unwrap_or(game.as_path())).into(),
             "--user".into(),
             python_path(&user).into(),
             "--timeout".into(),

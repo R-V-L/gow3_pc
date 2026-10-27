@@ -10,17 +10,29 @@ fi
 # Host code only: the PS4 guest is already x86-64. -mtune is safe everywhere; -march is
 # opt-in for a Deck/host-specific build (SPARTAN_MARCH=znver2). The shared GPU library and
 # the probe both get section GC.
+case $(uname -s) in
+MINGW*|MSYS*) windows=1 ;;
+*) windows=0 ;;
+esac
 march=${SPARTAN_MARCH:-}
 tune=${SPARTAN_TUNE:-znver2}
-lto=${SPARTAN_LTO:-ON}
-common=(-O3 -g -mtune="$tune" -ffunction-sections -fdata-sections
-        -fno-semantic-interposition -fno-plt)
+if [[ -n ${SPARTAN_LTO:-} ]]; then
+    lto=$SPARTAN_LTO
+elif [[ $windows == 1 ]]; then
+    lto=OFF
+else
+    lto=ON
+fi
+# -fno-semantic-interposition and -fno-plt are ELF-only: clang-cl/MSVC target Windows and treat
+# them as unused arguments, which third-party targets with -Werror reject.
+common=(-O3 -g -mtune="$tune" -ffunction-sections -fdata-sections)
+if [[ $windows == 0 ]]; then common+=(-fno-semantic-interposition -fno-plt); fi
 if [[ $lto != OFF && $lto != off && $lto != 0 ]]; then common+=(-flto); fi
 if [[ -n $march ]]; then common+=(-march="$march"); fi
 # The native tests are short-lived checks, not the game: no LTO, no optimization. Their LTO links
 # were the bulk of a CI run (one test took ten minutes to link before failing).
-test_common=(-O0 -g -mtune="$tune" -ffunction-sections -fdata-sections
-             -fno-semantic-interposition -fno-plt)
+test_common=(-O0 -g -mtune="$tune" -ffunction-sections -fdata-sections)
+if [[ $windows == 0 ]]; then test_common+=(-fno-semantic-interposition -fno-plt); fi
 if [[ -n $march ]]; then test_common+=(-march="$march"); fi
 link=(-Wl,--gc-sections -Wl,-O1 -lm)
 case $(uname -s) in

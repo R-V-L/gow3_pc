@@ -30,6 +30,9 @@ void runtime_restart(void) {}
 int runtime_memory_write_backing(uintptr_t at,const void *data,uint64_t size) {
     (void)at; (void)data; (void)size; return 0;
 }
+void runtime_memory_read_backing(uintptr_t at,void *data,uint64_t size) {
+    (void)at; (void)data; (void)size;
+}
 void runtime_report(void) {}
 int main(void) {
     char root[]="/tmp/spartanport-mod-files-XXXXXX";

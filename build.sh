@@ -109,11 +109,12 @@ read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3 libavcodec libavutil l
 # GPU library (shadPS4 video core + drivers), built by CMake into out/gpu/libspartanportgpu.so.
 # SPARTAN_PGO: generate (instrumented build that writes pgo/ while the game runs), use, off.
 # Default: use the profile in pgo/ when there is one. SPARTAN_LTO=OFF disables link-time optimization.
+pgo_dir=${SPARTAN_PGO_DIR:-$PWD/pgo}
 pgo=${SPARTAN_PGO:-}
 if [[ -z $pgo ]]; then
-    if [[ -n $(find pgo -name '*.gcda' -print -quit 2>/dev/null) ]]; then pgo=use; else pgo=off; fi
+    if [[ -n $(find "$pgo_dir" -name '*.gcda' -print -quit 2>/dev/null) ]]; then pgo=use; else pgo=off; fi
 fi
-mkdir -p pgo
+mkdir -p "$pgo_dir" 2>/dev/null || true
 # Submodules (git clone --recursive, or: git submodule update --init) and this port's changes
 # to FSR-Vulkan (gpu/patches/fsr-vulkan), applied to its working tree once.
 if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
@@ -125,7 +126,7 @@ for patch in gpu/patches/fsr-vulkan/*.patch; do
     fi
 done
 cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSPARTAN_PGO="$pgo" \
-    -DSPARTAN_LTO="${SPARTAN_LTO:-ON}" -DSPARTAN_PGO_DIR="$PWD/pgo" \
+    -DSPARTAN_LTO="${SPARTAN_LTO:-ON}" -DSPARTAN_PGO_DIR="$pgo_dir" \
     -DCMAKE_C_FLAGS_RELWITHDEBINFO="${common[*]}" \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="${common[*]}" \
     -DCMAKE_EXE_LINKER_FLAGS="${link[*]}" \

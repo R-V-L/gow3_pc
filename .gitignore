@@ -5,6 +5,7 @@ user/
 /*.ini
 fsr4_shaders/
 pgo/
+pgo-v3/
 *.png
 # Documentation pictures are part of the repository.
 !docs/images/*.png

@@ -1,5 +1,6 @@
 // spartanport: SDL3 window for the Vulkan swapchain (X11 or Wayland).
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -66,20 +67,32 @@ static SDL_DisplayID MonitorDisplay() {
 // restoring to that size shrunk to fit. The render resolution is independent (the game's image is
 // scaled to the window). SDL's usable bounds and window sizes are logical pixels: divide the
 // physical output size by the display content scale so a 4K window on a 200% desktop keeps a 4K
-// swapchain instead of a 1080p one. True when shrunk.
+// swapchain instead of a 1080p one. When the output setting's aspect does not match the display
+// (the Deck's 1920x1080 output on its 1280x800 panel), use the render resolution instead so the
+// 16:10 picture is not letterboxed. True when shrunk.
 static bool StartSize(s32& width, s32& height, SDL_DisplayID display) {
     constexpr int title_room = 48;
-    const int output = std::clamp(SpartanSettings::Get().output_res.load(), 0,
+    auto& settings = SpartanSettings::Get();
+    const int output = std::clamp(settings.output_res.load(), 0,
                                   int(std::size(SpartanSettings::OutputWidths)) - 1);
-    const int w = SpartanSettings::OutputWidths[output];
-    const int h = SpartanSettings::OutputHeights[output];
+    int w = SpartanSettings::OutputWidths[output];
+    int h = SpartanSettings::OutputHeights[output];
+    SDL_Rect usable{};
+    const bool have_usable =
+        SDL_GetDisplayUsableBounds(display, &usable) && usable.w > 0 && usable.h > title_room;
+    if (have_usable && std::abs(double(w) / h - double(usable.w) / usable.h) > 0.01) {
+        const std::vector<std::string> names = SpartanGraphics::ResolutionNames();
+        const int render = std::clamp(settings.render_resolution.load(), 0, int(names.size()) - 1);
+        const auto [render_w, render_h] = SpartanGraphics::ResolutionSize(names[render]);
+        w = render_w;
+        h = render_h;
+    }
     float density = SDL_GetDisplayContentScale(display);
     if (!(density > 0.0f)) density = 1.0f;
     const int logical_w = std::max(320, int(w / density));
     const int logical_h = std::max(180, int(h / density));
     double scale = 1.0;
-    SDL_Rect usable{};
-    if (SDL_GetDisplayUsableBounds(display, &usable) && usable.w > 0 && usable.h > title_room) {
+    if (have_usable) {
         scale = std::min({1.0, double(usable.w) / logical_w, double(usable.h - title_room) / logical_h});
     }
     width = std::max(320, int(logical_w * scale));

@@ -7,6 +7,10 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")/../.."
 [[ -f out/spartanport-probe && -f out/gpu/libspartanportgpu.so ]] || { echo 'Build first: bash build.sh' >&2; exit 1; }
+if ldd out/spartanport-probe 2>/dev/null | grep -q 'not found'; then
+    echo 'spartanport-probe has unresolved libraries; source .deps/env.sh before packaging' >&2
+    exit 1
+fi
 
 appdir=out/AppDir
 rm -rf "$appdir"

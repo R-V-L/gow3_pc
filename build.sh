@@ -76,8 +76,13 @@ MINGW*|MSYS*)
         out/services-test.exe
         clang -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_savedata.c src/compat_win.c -lbcrypt -o out/savedata-test.exe
         out/savedata-test.exe
-        ninja -C out/gpu graphics-settings-test
+        ninja -C out/gpu graphics-settings-test player-hook-test ledge-hook-test slot-vector-test subresource-extent-test irq-controller-test
         out/gpu/graphics-settings-test.exe
+        out/gpu/player-hook-test.exe
+        out/gpu/ledge-hook-test.exe
+        out/gpu/slot-vector-test.exe
+        out/gpu/subresource-extent-test.exe
+        out/gpu/irq-controller-test.exe
     fi
     exit 0
     ;;
@@ -149,6 +154,12 @@ if [[ ${1:-} == --test ]]; then
     out/pad-test
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/runtime-test
     out/runtime-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_memory.c -o out/memory-test
+    out/memory-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_low_handles.c src/runtime_memory.c src/runtime_mutex.c -o out/low-handles-test
+    out/low-handles-test
+    "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_memory_read_backing.c -o out/memory-read-backing-test
+    out/memory-read-backing-test
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_audio.c "${libraries[@]}" "${link[@]}" -o out/audio-test
     out/audio-test
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c "${gpu[@]}" "${libraries[@]}" -Wl,--allow-shlib-undefined "${link[@]}" -o out/file-mods-test
@@ -170,8 +181,11 @@ if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -c src/isa_rewrite.c -I. -Isrc -o out/isa_rewrite.o
     "$CC" -std=c11 "${test_common[@]}" -Wall -Wextra -Werror -mbmi -mlzcnt -I. -Isrc tests/test_isa_stub.c out/isa_rewrite.o out/isa_emulate.o "${link[@]}" -o out/isa-stub-test
     out/isa-stub-test tests/data/isa_fixture.bin
-    ninja -C out/gpu graphics-settings-test
+    ninja -C out/gpu graphics-settings-test slot-vector-test subresource-extent-test irq-controller-test
     out/gpu/graphics-settings-test
+    out/gpu/slot-vector-test
+    out/gpu/subresource-extent-test
+    out/gpu/irq-controller-test
 fi
 "$CC" -std=c11 "${common[@]}" -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" "${link[@]}" -o out/spartanport-probe
 echo "Built $PWD/out/spartanport-probe"

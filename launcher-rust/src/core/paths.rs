@@ -2,11 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::core::platform;
-
-/// Folder name of the previous launcher's settings (`scripts/legacy.py`).
-const LEGACY_CONFIG_DIR: &str = "gow3-launcher";
-
 /// Every launcher folder and file, derived from the executable's folder and the environment:
 /// `SPARTAN_PORT_DIR` names the port folder (default: the executable's; absolute, even when the
 /// variable is relative), whose `bin/` and `scripts/` the launcher uses;
@@ -19,7 +14,6 @@ pub struct Paths {
     pub data_dir: PathBuf,
     user_dir_default: PathBuf,
     ini: PathBuf,
-    legacy_config_dir: PathBuf,
     /// `SPARTAN_GAME_DIR` as the environment given to `from_env` had it: the game folder a new
     /// `settings.json` starts with.
     game_dir_default: String,
@@ -64,21 +58,11 @@ impl Paths {
             .filter(|file| !file.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.join("spartanport.ini"));
-        let home = || platform::home(env).unwrap_or_else(|| PathBuf::from("."));
-        let base = if cfg!(windows) {
-            env("APPDATA").map(PathBuf::from).unwrap_or_else(home)
-        } else {
-            env("XDG_CONFIG_HOME")
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home().join(".config"))
-        };
         Paths {
             port_dir,
             data_dir,
             user_dir_default,
             ini,
-            legacy_config_dir: base.join(LEGACY_CONFIG_DIR),
             game_dir_default: env("SPARTAN_GAME_DIR").unwrap_or_default(),
         }
     }
@@ -89,10 +73,6 @@ impl Paths {
 
     pub fn config_file(&self) -> PathBuf {
         self.data_dir.join("settings.json")
-    }
-
-    pub fn legacy_config_file(&self) -> PathBuf {
-        self.legacy_config_dir.join("settings.json")
     }
 
     pub fn ini_path(&self) -> PathBuf {
@@ -151,10 +131,12 @@ impl Paths {
             .find(|candidate| candidate.is_file())
     }
 
-    /// Next to the port; in the data folder when the port folder is read-only (AppImage).
+    /// Next to the port, where the packages ship the open FSR 4 model; in the data folder when
+    /// the port folder has none and is read-only.
     pub fn fsr4_folder(&self) -> PathBuf {
+        let shipped = self.port_dir.join("fsr4_shaders").is_dir();
         let writable = cfg!(windows) || folder_is_writable(&self.port_dir);
-        if writable {
+        if shipped || writable {
             self.port_dir.join("fsr4_shaders")
         } else {
             self.data_dir.join("fsr4_shaders")
@@ -368,57 +350,6 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn legacy_config_file_is_appdata_gow3_launcher_on_windows() {
-        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("APPDATA", "roaming")]));
-        assert_eq!(
-            paths.legacy_config_file(),
-            Path::new("roaming")
-                .join("gow3-launcher")
-                .join("settings.json")
-        );
-        let no_appdata = Paths::from_env(Path::new("exe"), &env_of(&[("USERPROFILE", "home")]));
-        assert_eq!(
-            no_appdata.legacy_config_file(),
-            Path::new("home")
-                .join("gow3-launcher")
-                .join("settings.json")
-        );
-    }
-
-    #[test]
-    fn an_empty_home_falls_back_to_the_current_folder() {
-        let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-        let paths = Paths::from_env(Path::new("exe"), &env_of(&[(key, "")]));
-        let base = if cfg!(windows) { "." } else { "./.config" };
-        assert_eq!(
-            paths.legacy_config_file(),
-            Path::new(base).join("gow3-launcher").join("settings.json")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn legacy_config_file_is_xdg_config_gow3_launcher_on_unix() {
-        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("XDG_CONFIG_HOME", "xdg")]));
-        assert_eq!(
-            paths.legacy_config_file(),
-            Path::new("xdg").join("gow3-launcher").join("settings.json")
-        );
-        let fallback = Paths::from_env(
-            Path::new("exe"),
-            &env_of(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "")]),
-        );
-        assert_eq!(
-            fallback.legacy_config_file(),
-            Path::new("/h")
-                .join(".config")
-                .join("gow3-launcher")
-                .join("settings.json")
-        );
-    }
-
     #[test]
     fn fsr4_folder_is_next_to_the_port_when_writable() {
         let dir = tempfile::tempdir().unwrap();
@@ -439,5 +370,19 @@ mod tests {
         if !root_ignores_modes {
             assert_eq!(folder, Path::new("data").join("fsr4_shaders"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fsr4_folder_is_the_packaged_one_even_when_the_port_is_read_only() {
+        // The AppImage ships the open FSR 4 model next to the port, which cannot be written.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("fsr4_shaders")).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let paths = Paths::from_env(dir.path(), &env_of(&[("SPARTAN_DATA_DIR", "data")]));
+        let folder = paths.fsr4_folder();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(folder, dir.path().join("fsr4_shaders"));
     }
 }

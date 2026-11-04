@@ -17,7 +17,6 @@
 #include "video_core/amdgpu/spartanport_msaa_default.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_amd_paths.h"
-#include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
@@ -502,18 +501,6 @@ bool Instance::CreateDevice() {
     const auto vk11_features = feature_chain.get<vk::PhysicalDeviceVulkan11Features>();
     vk12_features = feature_chain.get<vk::PhysicalDeviceVulkan12Features>();
     vk13_features = feature_chain.get<vk::PhysicalDeviceVulkan13Features>();
-    // spartanport: DLSS (optional bridge DLL) needs its own device extensions on NVIDIA GPUs.
-    std::vector<const char*> dlss_extensions;
-    if (Dlss* dlss = Dlss::Get()) {
-        dlss->AppendDeviceExtensions(*instance, physical_device, dlss_extensions);
-        for (const char* name : dlss_extensions) {
-            if (std::none_of(enabled_extensions.begin(), enabled_extensions.end(),
-                             [&](const char* e) { return std::string_view{e} == name; }) &&
-                enabled_extensions.size() < enabled_extensions.capacity()) {
-                enabled_extensions.push_back(name);
-            }
-        }
-    }
     vk::StructureChain device_chain = {
         vk::DeviceCreateInfo{
             .queueCreateInfoCount = queue_family_index == sparse_queue_family_index ? 1u : 2u,
@@ -544,7 +531,10 @@ bool Instance::CreateDevice() {
                 .shaderImageGatherExtended = features.shaderImageGatherExtended,
                 .shaderStorageImageExtendedFormats = features.shaderStorageImageExtendedFormats,
                 .shaderStorageImageMultisample = features.shaderStorageImageMultisample,
-                // spartanport: required by the FSR 3 accumulate shaders (vk_temporal_upscaler).
+                // spartanport: required by the FSR 3 accumulate shaders (vk_temporal_upscaler)
+                // and FSR 3.1 frame generation (vk_frame_generation), which reads them too.
+                .shaderStorageImageReadWithoutFormat =
+                    features.shaderStorageImageReadWithoutFormat,
                 .shaderStorageImageWriteWithoutFormat =
                     features.shaderStorageImageWriteWithoutFormat,
                 .shaderClipDistance = features.shaderClipDistance,
@@ -754,9 +744,6 @@ bool Instance::CreateDevice() {
         "SPARTAN_PIPELINE_BINARY_GLOBAL_KEY", driver_id != vk::DriverId::eNvidiaProprietary);
     pipeline_binaries = global_key_safe &&
         InitializePipelineBinaryCache(*device, pipeline_binaries, pipeline_binary_global_key);
-    if (Dlss* dlss = Dlss::Get()) {
-        dlss->Initialize(*instance, physical_device, *device);
-    }
 
     graphics_queue = device->getQueue(queue_family_index, 0);
     sparse_queue = device->getQueue(sparse_queue_family_index, 0);

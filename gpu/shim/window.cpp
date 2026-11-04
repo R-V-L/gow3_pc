@@ -94,6 +94,12 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     }
     const SDL_DisplayID display = MonitorDisplay();
     const bool too_large = StartSize(width_, height_, display);
+    // spartanport: SPARTAN_FULLSCREEN=1 (older launchers) still asks for fullscreen.
+    if (const char* fullscreen = std::getenv("SPARTAN_FULLSCREEN"); fullscreen && fullscreen[0] == '1' &&
+        SpartanSettings::Get().display_mode == SpartanGraphics::Windowed) {
+        SpartanSettings::Get().display_mode = SpartanGraphics::Borderless;
+    }
+    const int initial_mode = SpartanSettings::Get().display_mode;
     // Only a scaled (high-DPI) desktop needs the high-density backbuffer: on a 100% display it
     // would request twice the window's pixels and make the compositor downscale them again.
     const float content_scale = SDL_GetDisplayContentScale(display);
@@ -104,7 +110,8 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width_);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height_);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN, true);
-    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_MAXIMIZED_BOOLEAN, too_large);
+    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_MAXIMIZED_BOOLEAN,
+                           too_large && initial_mode == SpartanGraphics::Windowed);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, content_scale > 1.0f);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_VULKAN_BOOLEAN, true);
     base_title = title;
@@ -138,12 +145,7 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     } else {
         UNREACHABLE_MSG("Unsupported SDL video driver {}", driver ? driver : "(none)");
     }
-    // spartanport: SPARTAN_FULLSCREEN=1 (older launchers) still asks for fullscreen.
-    if (const char* fullscreen = std::getenv("SPARTAN_FULLSCREEN"); fullscreen && fullscreen[0] == '1' &&
-        SpartanSettings::Get().display_mode == SpartanGraphics::Windowed) {
-        SpartanSettings::Get().display_mode = SpartanGraphics::Borderless;
-    }
-    ApplyDisplayMode(SpartanSettings::Get().display_mode);
+    ApplyDisplayMode(initial_mode);
     // spartanport: the game has no mouse; the in-game menu draws its own cursor (SpartanOverlay::SetOpen).
     SDL_HideCursor();
     int w = 0, h = 0;
@@ -167,7 +169,12 @@ void WindowSDL::ApplyDisplayMode(int mode) {
         if (!SDL_SetWindowFullscreenMode(window, exclusive ? desktop : nullptr)) {
             LOG_WARNING(Frontend, "Fullscreen mode: {}", SDL_GetError());
         }
-        SDL_SetWindowFullscreen(window, true);
+        if (!SDL_SetWindowFullscreen(window, true) && exclusive) {
+            LOG_WARNING(Frontend, "Exclusive fullscreen failed ({}); falling back to borderless", SDL_GetError());
+            SDL_SetWindowFullscreenMode(window, nullptr);
+            SDL_SetWindowFullscreen(window, true);
+        }
+        SDL_RaiseWindow(window);
     }
     SDL_SyncWindow(window);
     std::printf("Window: %s\n", SpartanGraphics::DisplayModeNames[mode]);
@@ -232,12 +239,14 @@ bool WindowSDL::PollEvents() {
             UpdateTextTitle();
             continue;
         }
-        // The controller finishes the text dialog too: Cross (A) accepts, Circle (B) cancels.
+        // The controller finishes the text dialog too: Cross (A) accepts, Circle (B) cancels (or swapped).
         if (text_active && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
             (event.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH ||
              event.gbutton.button == SDL_GAMEPAD_BUTTON_EAST)) {
             std::scoped_lock lock{text_mutex};
-            text_state = event.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH ? 1 : 2;
+            const bool swapped = SpartanSettings::Get().menu_confirm_swap.load(std::memory_order_relaxed) != 0;
+            const u8 confirm_btn = swapped ? SDL_GAMEPAD_BUTTON_EAST : SDL_GAMEPAD_BUTTON_SOUTH;
+            text_state = event.gbutton.button == confirm_btn ? 1 : 2;
             text_active = false;
             SDL_StopTextInput(window);
             UpdateTextTitle();

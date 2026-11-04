@@ -1,6 +1,5 @@
-//! The launcher's own settings (`settings.json`): defaults, load, save and the portable migration.
+//! The launcher's own settings (`settings.json`): defaults, load and save.
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -79,23 +78,56 @@ pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> 
         .collect()
 }
 
-/// Copies the previous launcher's `settings.json` into the data folder, once. Never overwrites;
-/// every error is ignored. (`game_icon.ico` is not copied: the runner writes the window icon.)
-pub fn migrate_portable_settings(target: &Path, legacy: &Path) {
-    if target == legacy {
-        return;
+/// Built-in patches that became on by default after players had saved their list. A saved list
+/// is exact, so each is ticked in it once; `patches_offered` remembers that, and unticking it
+/// later sticks. ponytail: a fixed list, read the XML defaults if more such patches come.
+const NEW_DEFAULT_PATCHES: &[(&str, &str)] = &[("CUSA01623", "High FPS Wall Seam Fix")];
+
+fn offered(saved: &Map<String, Value>) -> Vec<Value> {
+    match saved.get("patches_offered") {
+        Some(Value::Array(names)) => names.clone(),
+        _ => Vec::new(),
     }
-    copy_if_missing(legacy, target);
 }
 
-fn copy_if_missing(from: &Path, to: &Path) {
-    if to.is_file() || !from.is_file() {
-        return;
+/// Ticks each new default patch once in a saved list; with no saved list the XML defaults apply
+/// and nothing changes.
+fn offer_new_default_patches(saved: &mut Map<String, Value>) {
+    let mut done = offered(saved);
+    let before = done.len();
+    for (title_id, name) in NEW_DEFAULT_PATCHES {
+        if done.iter().any(|offered| offered == name) {
+            continue;
+        }
+        let list = saved
+            .get_mut("game_patches")
+            .and_then(|all| all.get_mut(*title_id))
+            .and_then(Value::as_array_mut);
+        if let Some(list) = list {
+            if !list.iter().any(|chosen| chosen == name) {
+                list.push(json!(name));
+            }
+            done.push(json!(name));
+        }
     }
-    if let Some(parent) = to.parent() {
-        let _ = fs::create_dir_all(parent);
+    if done.len() > before {
+        saved.insert("patches_offered".to_string(), Value::Array(done));
     }
-    let _ = fs::copy(from, to);
+}
+
+/// The patches page wrote a list from what it showed, new defaults included: they count as
+/// offered, so a later untick sticks.
+pub fn mark_default_patches_offered(saved: &mut Map<String, Value>, title_id: &str) {
+    let mut done = offered(saved);
+    let before = done.len();
+    for (_, name) in NEW_DEFAULT_PATCHES.iter().filter(|(id, _)| *id == title_id) {
+        if !done.iter().any(|offered| offered == name) {
+            done.push(json!(name));
+        }
+    }
+    if done.len() > before {
+        saved.insert("patches_offered".to_string(), Value::Array(done));
+    }
 }
 
 /// Defaults overlaid with the saved file; see `read_app_settings`.
@@ -103,7 +135,7 @@ pub fn load_app_settings(paths: &Paths) -> Settings {
     read_app_settings(paths).0
 }
 
-/// What `read_app_settings` found at `paths.config_file()` after the portable migration.
+/// What `read_app_settings` found at `paths.config_file()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsFile {
     Missing,
@@ -116,7 +148,6 @@ pub enum SettingsFile {
 /// and is left untouched until the next save; a `Missing` one is no problem.
 pub fn read_app_settings(paths: &Paths) -> (Settings, SettingsFile) {
     let config = paths.config_file();
-    migrate_portable_settings(&config, &paths.legacy_config_file());
     let (saved, file) = match read_json::<Value>(&config) {
         Ok(Some(Value::Object(map))) => (map, SettingsFile::Read),
         Ok(None) => (Map::new(), SettingsFile::Missing),
@@ -127,6 +158,7 @@ pub fn read_app_settings(paths: &Paths) -> (Settings, SettingsFile) {
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
     }
+    offer_new_default_patches(&mut merged);
     (Settings(merged), file)
 }
 
@@ -153,6 +185,10 @@ mod tests {
         assert_eq!(defaults.len(), 43);
         assert_eq!(defaults.keys().next().unwrap(), "ui_language");
         assert_eq!(defaults.keys().next_back().unwrap(), "glyph_style");
+        // The switch attacks sit right before the glyphs, as in the Python's APP_DEFAULTS.
+        let at = defaults.keys().position(|key| key == "switch_attacks");
+        assert_eq!(at, Some(41));
+        assert_eq!(defaults["switch_attacks"], json!(false));
         // The 2.7.0 shader cache switches sit between the screen effects and the warm-up.
         let keys: Vec<&str> = defaults.keys().map(String::as_str).collect();
         let at = keys
@@ -174,8 +210,8 @@ mod tests {
         assert_eq!(defaults["shader_notes"], json!(false));
         // Ruling R83: no folder is guessed, on any system.
         assert_eq!(defaults["game_dir"], json!(""));
-        // Ruling R90: GUI Scale starts at 1x (the Python's "auto" followed the desktop).
-        assert_eq!(defaults["ui_scale"], json!("1"));
+        // GUI Scale starts at Auto, the desktop's scale fitted to the screen (as the Python's).
+        assert_eq!(defaults["ui_scale"], json!("auto"));
         // Ruling R91: Discord Rich Presence starts on.
         assert_eq!(defaults["discord_rpc"], json!(true));
         let env = |k: &str| (k == "SPARTAN_GAME_DIR").then(|| "/games".to_string());
@@ -272,13 +308,9 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_settings_file_counts_as_read() {
-        // A settings file only at the old location: the portable migration copies it before the
-        // file is looked for, so it counts as read.
+    fn a_settings_file_at_the_old_location_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
-        // `Paths::legacy_config_file` is `<APPDATA>/gow3-launcher/settings.json` on Windows and
-        // `<XDG_CONFIG_HOME>/gow3-launcher/settings.json` elsewhere.
         let legacy = dir.path().join("legacy").join("gow3-launcher");
         fs::create_dir_all(&legacy).unwrap();
         fs::write(legacy.join("settings.json"), r#"{"ui_language": "de"}"#).unwrap();
@@ -289,34 +321,44 @@ mod tests {
             _ => None,
         });
         let (settings, file) = read_app_settings(&paths);
-        assert_eq!(file, SettingsFile::Read);
-        assert_eq!(settings.get_str("ui_language"), "de");
-        assert!(paths.config_file().is_file(), "the migration copied it");
+        assert_eq!(file, SettingsFile::Missing);
+        assert_ne!(settings.get_str("ui_language"), "de");
+        assert!(!paths.config_file().exists());
+    }
+
+    fn patches(settings: &Map<String, Value>) -> Vec<&str> {
+        settings["game_patches"]["CUSA01623"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect()
     }
 
     #[test]
-    fn portable_migration_copies_only_settings() {
-        let dir = tempfile::tempdir().unwrap();
-        let legacy_dir = dir.path().join("legacy");
-        let target_dir = dir.path().join("data");
-        fs::create_dir_all(&legacy_dir).unwrap();
-        let legacy = legacy_dir.join("settings.json");
-        let target = target_dir.join("settings.json");
-        fs::write(&legacy, "old").unwrap();
-        fs::write(legacy_dir.join("game_icon.ico"), "ico").unwrap();
+    fn a_new_default_patch_is_ticked_once_in_a_saved_list() {
+        let mut saved = json!({"game_patches": {"CUSA01623": ["Skip Intro"]}})
+            .as_object()
+            .unwrap()
+            .clone();
+        offer_new_default_patches(&mut saved);
+        assert_eq!(patches(&saved), ["Skip Intro", "High FPS Wall Seam Fix"]);
+        assert_eq!(saved["patches_offered"], json!(["High FPS Wall Seam Fix"]));
+        // Unticked by the player afterwards: it stays off.
+        saved["game_patches"]["CUSA01623"] = json!(["Skip Intro"]);
+        offer_new_default_patches(&mut saved);
+        assert_eq!(patches(&saved), ["Skip Intro"]);
+    }
 
-        migrate_portable_settings(&target, &legacy);
-        assert_eq!(fs::read_to_string(&target).unwrap(), "old");
-        assert!(
-            !target_dir.join("game_icon.ico").exists(),
-            "the runner writes the window icon itself"
-        );
-
-        fs::write(&legacy, "newer").unwrap();
-        migrate_portable_settings(&target, &legacy);
-        assert_eq!(fs::read_to_string(&target).unwrap(), "old");
-
-        migrate_portable_settings(&legacy, &legacy);
-        assert_eq!(fs::read_to_string(&legacy).unwrap(), "newer");
+    #[test]
+    fn without_a_saved_list_the_defaults_apply_and_nothing_changes() {
+        let mut saved = Map::new();
+        offer_new_default_patches(&mut saved);
+        assert!(saved.is_empty());
+        // The page then writes the list it showed, with the default unticked: it stays off.
+        saved.insert("game_patches".into(), json!({"CUSA01623": ["Skip Intro"]}));
+        mark_default_patches_offered(&mut saved, "CUSA01623");
+        offer_new_default_patches(&mut saved);
+        assert_eq!(patches(&saved), ["Skip Intro"]);
     }
 }

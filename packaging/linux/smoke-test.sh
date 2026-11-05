@@ -29,17 +29,10 @@ ldd --version | sed -n 1p  # head would end ldd with SIGPIPE (pipefail)
 work=$(mktemp -d)
 cd "$work"
 "$appimage" --appimage-extract >/dev/null
-# Prove that startup uses the bundled loaders, rather than copies on the host.
+# Prove that startup uses the bundled loaders, rather than copies on the host. A build whose
+# FFmpeg is not linked against the hardware loaders has none to bundle, so require only the ones
+# the probe actually uses.
 ldconfig -p > host-libraries.log
-for loader in libOpenCL.so.1 libva.so.2 libvdpau.so.1 libvpl.so.2; do
-    [[ -f squashfs-root/usr/lib/$loader ]] || { echo "FAIL: $loader is not bundled" >&2; exit 1; }
-    if awk -v loader="$loader" '$1 == loader { found=1 } END { exit !found }' host-libraries.log; then
-        echo "FAIL: $loader is installed on the host; missing-loader coverage is invalid" >&2
-        exit 1
-    fi
-done
-
-# A missing library stops the probe before main (#704).
 probe=$(find squashfs-root/usr/share -name '*probe' -perm -u+x -print -quit 2>/dev/null || true)
 if [[ -z $probe ]]; then
     for f in squashfs-root/usr/share/*/bin/*probe; do
@@ -47,6 +40,26 @@ if [[ -z $probe ]]; then
     done
 fi
 [[ -n $probe ]] || { echo "FAIL: probe executable not found" >&2; exit 1; }
+probe_libraries=$(LD_LIBRARY_PATH="$PWD/squashfs-root/usr/lib" ldd "$probe" 2>/dev/null || true)
+linked_loaders=()
+for loader in libOpenCL.so.1 libva.so.2 libvdpau.so.1 libvpl.so.2; do
+    if grep -qE "(^|[[:space:]])${loader//./\\.}([[:space:]]|$)" <<<"$probe_libraries"; then
+        linked_loaders+=("$loader")
+    fi
+done
+for loader in "${linked_loaders[@]}"; do
+    [[ -f squashfs-root/usr/lib/$loader ]] || { echo "FAIL: $loader is linked but not bundled" >&2; exit 1; }
+    if awk -v loader="$loader" '$1 == loader { found=1 } END { exit !found }' host-libraries.log; then
+        echo "FAIL: $loader is installed on the host; missing-loader coverage is invalid" >&2
+        exit 1
+    fi
+done
+if (( ${#linked_loaders[@]} )); then
+    echo "OK: bundled linked loaders: ${linked_loaders[*]}"
+else
+    echo "OK: the probe links none of the hardware loaders; nothing to bundle"
+fi
+
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}"
 probe_status=0
 LD_LIBRARY_PATH="$PWD/squashfs-root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
@@ -58,20 +71,29 @@ if [[ $probe_status -ne 0 && $probe_status -ne 20 ]] || grep -q 'error while loa
 fi
 echo "OK: probe loaded dependencies successfully"
 
-# Reproduce #704 without altering the artifact: expose every bundled library except OpenCL.
-mkdir without-opencl
-for library in "$PWD"/squashfs-root/usr/lib/*; do
-    [[ $(basename "$library") == libOpenCL.so* ]] && continue
-    ln -s "$library" without-opencl/
-done
-missing_status=0
-LD_LIBRARY_PATH="$PWD/without-opencl" timeout 30 "$probe" --cpu-features > missing-opencl.log 2>&1 || missing_status=$?
-cat missing-opencl.log
-[[ $missing_status == 127 ]] && grep -q 'libOpenCL.so.1: cannot open shared object file' missing-opencl.log || {
-    echo "FAIL: missing OpenCL did not reproduce the startup failure (exit $missing_status)" >&2
-    exit 1
-}
-echo "OK: removing OpenCL from the library search path reproduced #704"
+# Reproduce #704 without altering the artifact: expose every bundled library except one the probe
+# links. Hiding a loader the probe does not need cannot reproduce the startup failure.
+if (( ${#linked_loaders[@]} )); then
+    missing_loader=${linked_loaders[0]}
+    for loader in "${linked_loaders[@]}"; do
+        [[ $loader == libOpenCL.so* ]] && { missing_loader=$loader; break; }
+    done
+    mkdir without-loader
+    for library in "$PWD"/squashfs-root/usr/lib/*; do
+        [[ $(basename "$library") == "${missing_loader%%.so*}"* ]] && continue
+        ln -s "$library" without-loader/
+    done
+    missing_status=0
+    LD_LIBRARY_PATH="$PWD/without-loader" timeout 30 "$probe" --cpu-features > missing-loader.log 2>&1 || missing_status=$?
+    cat missing-loader.log
+    [[ $missing_status == 127 ]] && grep -Fq "$missing_loader: cannot open shared object file" missing-loader.log || {
+        echo "FAIL: missing $missing_loader did not reproduce the startup failure (exit $missing_status)" >&2
+        exit 1
+    }
+    echo "OK: removing $missing_loader from the library search path reproduced #704"
+else
+    echo "OK: no linked hardware loader to hide for the #704 check"
+fi
 
 Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
 export DISPLAY=:99 HOME=$work
